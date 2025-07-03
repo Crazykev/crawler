@@ -1,0 +1,234 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crawler"
+version = "0.1.0"
+description = "A comprehensive web scraping and crawling solution built on crawl4ai"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Crawler Development Team", email = "dev@example.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup :: HTML",
+]
+keywords = ["web scraping", "crawling", "data extraction", "automation", "crawl4ai"]
+
+# Core dependencies for Phase 1
+dependencies = [
+    # Core crawling library
+    "crawl4ai>=0.6.3",
+    
+    # Web framework for APIs
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    
+    # CLI framework
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "rich-click>=1.7.0",
+    
+    # Data validation and serialization
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    
+    # Database (SQLite-focused for Phase 1)
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "aiosqlite>=0.19.0",
+    
+    # HTTP client and utilities
+    "aiohttp>=3.9.0",
+    "httpx>=0.25.0",
+    
+    # Template engine
+    "jinja2>=3.1.0",
+    
+    # Configuration and data formats
+    "pyyaml>=6.0",
+    "toml>=0.10.0",
+    
+    # Date/time utilities
+    "python-dateutil>=2.8.0",
+    
+    # Async utilities
+    "asyncio-throttle>=1.0.2",
+    
+    # Utilities
+    "validators>=0.22.0",
+    "click-pathlib>=0.1.0",
+]
+
+[project.optional-dependencies]
+# Development dependencies
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "black>=23.11.0",
+    "isort>=5.12.0",
+    "flake8>=6.1.0",
+    "mypy>=1.7.0",
+    "pre-commit>=3.5.0",
+]
+
+# Production dependencies
+prod = [
+    "gunicorn>=21.2.0",
+    "psycopg2-binary>=2.9.0",  # For future PostgreSQL migration
+]
+
+# Testing dependencies
+test = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "httpx>=0.25.0",
+    "faker>=20.1.0",
+]
+
+# Documentation dependencies
+docs = [
+    "sphinx>=7.2.0",
+    "sphinx-rtd-theme>=1.3.0",
+    "myst-parser>=2.0.0",
+]
+
+# All optional dependencies
+all = [
+    "crawler[dev,prod,test,docs]",
+]
+
+[project.scripts]
+crawler = "crawler.main:main"
+
+[project.urls]
+Homepage = "https://github.com/example/crawler"
+Documentation = "https://crawler.readthedocs.io"
+Repository = "https://github.com/example/crawler"
+"Bug Tracker" = "https://github.com/example/crawler/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+crawler = [
+    "templates/**/*.j2",
+    "config/**/*.yaml",
+    "config/**/*.json",
+]
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+(
+  /(
+      \.eggs
+    | \.git
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | buck-out
+    | build
+    | dist
+  )/
+)
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+# pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "cli: marks tests as CLI tests",
+    "api: marks tests as API tests",
+]
+filterwarnings = [
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src/crawler"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+module = [
+    "crawl4ai.*",
+    "rich.*",
+    "click.*",
+]
+ignore_missing_imports = true

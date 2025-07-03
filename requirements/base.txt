@@ -1,0 +1,44 @@
+# Core dependencies for the Crawler system
+# These are the minimum requirements for running the application
+
+# Core crawling library
+crawl4ai>=0.6.3
+
+# Web framework for APIs
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# CLI framework
+click>=8.1.0
+rich>=13.0.0
+rich-click>=1.7.0
+
+# Data validation and serialization
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Database (SQLite-focused for Phase 1)
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+aiosqlite>=0.19.0
+
+# HTTP client and utilities
+aiohttp>=3.9.0
+httpx>=0.25.0
+
+# Template engine
+jinja2>=3.1.0
+
+# Configuration and data formats
+pyyaml>=6.0
+toml>=0.10.0
+
+# Date/time utilities
+python-dateutil>=2.8.0
+
+# Async utilities
+asyncio-throttle>=1.0.2
+
+# Utilities
+validators>=0.22.0
+click-pathlib>=0.1.0

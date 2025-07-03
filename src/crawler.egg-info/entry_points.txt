@@ -1,0 +1,2 @@
+[console_scripts]
+crawler = crawler.main:main
