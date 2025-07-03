@@ -1,0 +1,788 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Firecrawl API",
+    "version": "v1",
+    "description": "API for crawling and scraping websites, and extracting data."
+  },
+  "servers": [
+    {
+      "url": "https://api.firecrawl.dev/v1"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/batch/scrape": {
+      "post": {
+        "summary": "Batch Scrape",
+        "description": "Initiate a batch scrape of multiple URLs.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaseScrapeOptions"
+              },
+              "examples": {
+                "example": {
+                  "value": {
+                    "urls": [
+                      "<string>"
+                    ],
+                    "webhook": {
+                      "url": "<string>",
+                      "headers": {},
+                      "metadata": {},
+                      "events": [
+                        "completed"
+                      ]
+                    },
+                    "maxConcurrency": 123,
+                    "ignoreInvalidURLs": false,
+                    "onlyMainContent": true,
+                    "includeTags": [
+                      "<string>"
+                    ],
+                    "excludeTags": [
+                      "<string>"
+                    ],
+                    "maxAge": 0,
+                    "headers": {},
+                    "waitFor": 0,
+                    "mobile": false,
+                    "skipTlsVerification": false,
+                    "timeout": 30000,
+                    "parsePDF": true,
+                    "jsonOptions": {
+                      "schema": {},
+                      "systemPrompt": "<string>",
+                      "prompt": "<string>"
+                    },
+                    "actions": [
+                      {
+                        "type": "wait",
+                        "milliseconds": 2,
+                        "selector": "#my-element"
+                      }
+                    ],
+                    "location": {
+                      "country": "US",
+                      "languages": [
+                        "en-US"
+                      ]
+                    },
+                    "removeBase64Images": true,
+                    "blockAds": true,
+                    "proxy": "basic",
+                    "storeInCache": true,
+                    "formats": [
+                      "markdown"
+                    ],
+                    "changeTrackingOptions": {
+                      "modes": [
+                        "git-diff"
+                      ],
+                      "schema": {},
+                      "prompt": "<string>",
+                      "tag": null
+                    },
+                    "zeroDataRetention": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchScrapeResponseObj"
+                },
+                "examples": {
+                  "example": {
+                    "value": {
+                      "success": true,
+                      "id": "<string>",
+                      "url": "<string>",
+                      "invalidURLs": [
+                        "<string>"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required"
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/batch/scrape/{id}": {
+      "get": {
+        "summary": "Get Batch Scrape Status",
+        "description": "Check the status of a batch scrape job.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the batch scrape job",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchScrapeStatusResponseObj"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required"
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel Batch Scrape",
+        "description": "Cancel a running batch scrape job.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the batch scrape job",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful cancellation"
+          },
+          "404": {
+            "description": "Batch scrape job not found"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/batch/scrape/{id}/errors": {
+      "get": {
+        "summary": "Get Batch Scrape Errors",
+        "description": "Retrieve any errors that occurred during a batch scrape job.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the batch scrape job",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrawlErrorsResponseObj"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required"
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/crawl": {
+      "post": {
+        "summary": "Crawl",
+        "description": "Start a crawl from a specific URL.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrawlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrawlResponse"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required"
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/crawl/active": {
+      "get": {
+        "summary": "Get Active Crawls",
+        "description": "Retrieve a list of all active crawl jobs.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "crawls": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ActiveCrawl"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required"
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/crawl/{id}": {
+      "get": {
+        "summary": "Get Crawl Status",
+        "description": "Check the status of a crawl job.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the crawl job",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrawlStatusResponseObj"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required"
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel Crawl",
+        "description": "Cancel a running crawl job.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the crawl job",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful cancellation"
+          },
+          "404": {
+            "description": "Crawl job not found"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/crawl/{id}/errors": {
+      "get": {
+        "summary": "Get Crawl Errors",
+        "description": "Retrieve any errors that occurred during a crawl job.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the crawl job",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrawlErrorsResponseObj"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required"
+          },
+          "429": {
+            "description": "Too many requests"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/extract": {
+      "post": {
+        "summary": "Extract",
+        "description": "Extract structured data from URLs based on a prompt and/or a JSON schema.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful extraction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Action": {
+        "oneOf": [
+          {
+            "title": "Wait",
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["wait"],
+                "description": "Wait for a specified amount of milliseconds"
+              },
+              "milliseconds": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Number of milliseconds to wait"
+              },
+              "selector": {
+                "type": "string",
+                "description": "Query selector to find the element by",
+                "example": "#my-element"
+              }
+            },
+            "required": ["type"]
+          },
+          {
+            "title": "Screenshot",
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["screenshot"] },
+              "fullPage": { "type": "boolean", "default": false },
+              "quality": { "type": "integer", "description": "1-100" }
+            },
+            "required": ["type"]
+          },
+          {
+            "title": "Click",
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["click"] },
+              "selector": { "type": "string", "example": "#load-more-button" },
+              "all": { "type": "boolean", "default": false }
+            },
+            "required": ["type", "selector"]
+          },
+          {
+            "title": "Write text",
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["write"] },
+              "text": { "type": "string", "example": "Hello, world!" }
+            },
+            "required": ["type", "text"]
+          },
+          {
+            "title": "Press a key",
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["press"] },
+              "key": { "type": "string", "example": "Enter" }
+            },
+            "required": ["type", "key"]
+          },
+          {
+            "title": "Scroll",
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["scroll"] },
+              "direction": { "type": "string", "enum": ["up", "down"], "default": "down" },
+              "selector": { "type": "string", "example": "#my-element" }
+            },
+            "required": ["type"]
+          },
+          { "title": "Scrape", "type": "object", "properties": { "type": { "type": "string", "enum": ["scrape"] } }, "required": ["type"] },
+          {
+            "title": "Execute JavaScript",
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["executeJavascript"] },
+              "script": { "type": "string", "example": "document.querySelector('.button').click();" }
+            },
+            "required": ["type", "script"]
+          },
+          {
+            "title": "Generate PDF",
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["pdf"] },
+              "format": { "type": "string", "enum": ["A0", "A1", "A2", "A3", "A4", "A5", "A6", "Letter", "Legal", "Tabloid", "Ledger"], "default": "Letter" },
+              "landscape": { "type": "boolean", "default": false },
+              "scale": { "type": "number", "default": 1 }
+            },
+            "required": ["type"]
+          }
+        ]
+      },
+      "BaseScrapeOptions": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": { "type": "string", "format": "uri" }
+          },
+          "webhook": {
+             "type": "object",
+              "properties": {
+                "url": {"type": "string"},
+                "headers": {"type": "object"},
+                "metadata": {"type": "object"},
+                "events": {"type": "array", "items": {"type": "string"}}
+              },
+              "required": ["url"]
+          },
+           "maxConcurrency": {"type": "integer"},
+           "ignoreInvalidURLs": {"type": "boolean", "default": false},
+           "zeroDataRetention": {"type": "boolean", "default": false},
+          "onlyMainContent": { "type": "boolean", "default": true },
+          "includeTags": { "type": "array", "items": { "type": "string" } },
+          "excludeTags": { "type": "array", "items": { "type": "string" } },
+          "maxAge": { "type": "integer", "default": 0 },
+          "headers": { "type": "object" },
+          "waitFor": { "type": "integer", "default": 0 },
+          "mobile": { "type": "boolean", "default": false },
+          "skipTlsVerification": { "type": "boolean", "default": false },
+          "timeout": { "type": "integer", "default": 30000 },
+          "parsePDF": { "type": "boolean", "default": true },
+          "jsonOptions": {
+            "type": "object",
+            "properties": {
+              "schema": { "type": "object" },
+              "systemPrompt": { "type": "string" },
+              "prompt": { "type": "string" }
+            }
+          },
+          "actions": { "type": "array", "items": { "$ref": "#/components/schemas/Action" } },
+          "location": {
+            "type": "object",
+            "properties": {
+              "country": { "type": "string", "pattern": "^[A-Z]{2}$", "default": "US" },
+              "languages": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "removeBase64Images": { "type": "boolean" },
+          "blockAds": { "type": "boolean", "default": true },
+          "proxy": { "type": "string", "enum": ["basic", "stealth", "auto"] },
+          "storeInCache": { "type": "boolean", "default": true },
+          "formats": { "type": "array", "items": { "type": "string", "enum": ["markdown", "html", "rawHtml", "links", "screenshot", "screenshot@fullPage", "json", "changeTracking"] }, "default": ["markdown"] },
+          "changeTrackingOptions": {
+            "type": "object",
+            "properties": {
+              "modes": { "type": "array", "items": { "type": "string", "enum": ["git-diff", "json"] } },
+              "schema": { "type": "object" },
+              "prompt": { "type": "string" },
+              "tag": { "type": "string", "nullable": true, "default": null }
+            }
+          }
+        },
+        "required": ["urls"]
+      },
+      "ScrapeOptions": {
+        "allOf": [
+          { "$ref": "#/components/schemas/BaseScrapeOptions" },
+          {
+            "type": "object",
+            "properties": {
+              "formats": { "type": "array", "items": { "type": "string" }, "default": ["markdown"] },
+              "changeTrackingOptions": {
+                "type": "object",
+                "properties": {
+                  "modes": { "type": "array", "items": { "type": "string" } },
+                  "schema": { "type": "object" },
+                  "prompt": { "type": "string" },
+                  "tag": { "type": "string", "nullable": true }
+                }
+              }
+            }
+          }
+        ]
+      },
+       "CrawlRequest": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "excludePaths": { "type": "array", "items": { "type": "string" } },
+          "includePaths": { "type": "array", "items": { "type": "string" } },
+          "maxDepth": { "type": "integer", "default": 10 },
+          "maxDiscoveryDepth": { "type": "integer" },
+          "ignoreSitemap": { "type": "boolean", "default": false },
+          "ignoreQueryParameters": { "type": "boolean", "default": false },
+          "limit": { "type": "integer", "default": 10000 },
+          "crawlEntireDomain": { "type": "boolean", "default": false },
+          "allowExternalLinks": { "type": "boolean", "default": false },
+          "allowSubdomains": { "type": "boolean", "default": false },
+          "delay": { "type": "number" },
+          "maxConcurrency": { "type": "integer" },
+          "webhook": {
+             "type": "object",
+              "properties": {
+                "url": {"type": "string"},
+                "headers": {"type": "object"},
+                "metadata": {"type": "object"},
+                "events": {"type": "array", "items": {"type": "string"}}
+              },
+              "required": ["url"]
+          },
+          "scrapeOptions": { "$ref": "#/components/schemas/ScrapeOptions" },
+          "zeroDataRetention": { "type": "boolean", "default": false }
+        },
+        "required": ["url"]
+      },
+      "ExtractRequest": {
+        "type": "object",
+        "properties": {
+          "urls": { "type": "array", "items": { "type": "string", "format": "uri" } },
+          "prompt": { "type": "string" },
+          "schema": { "type": "object" },
+          "enableWebSearch": { "type": "boolean", "default": false },
+          "ignoreSitemap": { "type": "boolean", "default": false },
+          "includeSubdomains": { "type": "boolean", "default": true },
+          "showSources": { "type": "boolean", "default": false },
+          "scrapeOptions": { "$ref": "#/components/schemas/ScrapeOptions" },
+          "ignoreInvalidURLs": { "type": "boolean", "default": false }
+        },
+        "required": ["urls"]
+      },
+      "BatchScrapeResponseObj": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "id": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "invalidURLs": { "type": "array", "nullable": true, "items": { "type": "string" } }
+        }
+      },
+      "BatchScrapeStatusResponseObj": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "total": { "type": "integer" },
+          "completed": { "type": "integer" },
+          "creditsUsed": { "type": "integer" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "next": { "type": "string", "nullable": true },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ScrapedData" } }
+        }
+      },
+      "CrawlErrorsResponseObj": {
+        "type": "object",
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "timestamp": { "type": "string", "nullable": true },
+                "url": { "type": "string" },
+                "error": { "type": "string" }
+              }
+            }
+          },
+          "robotsBlocked": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "CrawlResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "id": { "type": "string" },
+          "url": { "type": "string", "format": "uri" }
+        }
+      },
+      "CrawlStatusResponseObj": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "total": { "type": "integer" },
+          "completed": { "type": "integer" },
+          "creditsUsed": { "type": "integer" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "next": { "type": "string", "nullable": true },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ScrapedData" } }
+        }
+      },
+       "ActiveCrawl": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "teamId": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "options": { "type": "object", "properties": { "scrapeOptions": { "$ref": "#/components/schemas/ScrapeOptions" } } }
+        },
+        "required": ["id", "teamId", "url", "status", "options"]
+      },
+      "ExtractResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "id": { "type": "string" },
+          "invalidURLs": { "type": "array", "nullable": true, "items": { "type": "string" } }
+        }
+      },
+      "ScrapedData": {
+        "type": "object",
+        "properties": {
+          "markdown": { "type": "string" },
+          "html": { "type": "string", "nullable": true },
+          "rawHtml": { "type": "string", "nullable": true },
+          "links": { "type": "array", "items": { "type": "string" } },
+          "screenshot": { "type": "string", "nullable": true },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "description": { "type": "string" },
+              "language": { "type": "string", "nullable": true },
+              "sourceURL": { "type": "string", "format": "uri" },
+              "statusCode": { "type": "integer" },
+              "error": { "type": "string", "nullable": true }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}
