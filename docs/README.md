@@ -50,7 +50,7 @@ The Crawler System is a comprehensive web scraping and crawling solution built o
 │ • scrape cmd    │ • /api/scrape   │ • /scrape                   │
 │ • crawl cmd     │ • /api/crawl    │ • /crawl                    │
 │ • config mgmt   │ • /api/sessions │ • /batch/scrape             │
-│ • status check  │ • /api/jobs     │ • /extract                  │
+│ • status check  │ • status mgmt   │ • /extract                  │
 └─────────────────┴─────────────────┴─────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────────┐
@@ -185,7 +185,7 @@ response = requests.post(
 
 # Multi-page crawling
 response = requests.post(
-    "https://api.crawler.example.com/v1/crawl/jobs",
+    "https://api.crawler.example.com/v1/crawl",
     headers={"Authorization": "Bearer your_api_key"},
     json={
         "start_url": "https://example.com",
@@ -260,9 +260,10 @@ response = requests.post(
 - **Pydantic**: Data validation and serialization
 
 ### **Storage & Caching**
-- **Redis**: Session and cache storage
-- **PostgreSQL**: Persistent data storage
-- **SQLAlchemy**: Database ORM
+- **SQLite**: Primary storage for all data (results, cache, sessions)
+- **File System**: Result files and cache storage
+- **SQLAlchemy**: Database ORM with SQLite backend
+- **Future**: PostgreSQL migration path for production scale
 
 ### **Browser Automation**
 - **Playwright**: Browser automation (via crawl4ai)
@@ -319,28 +320,18 @@ spec:
 
 ### **Docker Compose Setup**
 ```yaml
+# 简化的Docker Compose（仅用于开发）
 version: '3.8'
 services:
   crawler-api:
     build: .
     ports:
       - "8000:8000"
-    depends_on:
-      - postgres
-      - redis
+    volumes:
+      - ./data:/app/data  # SQLite数据目录
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/crawler
-      - REDIS_URL=redis://redis:6379
-
-  postgres:
-    image: postgres:13
-    environment:
-      POSTGRES_DB: crawler
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-
-  redis:
-    image: redis:6-alpine
+      - CRAWLER_DATA_DIR=/app/data
+      - CRAWLER_LOG_LEVEL=INFO
 ```
 
 ## Configuration Management
@@ -523,10 +514,10 @@ jobs:
 - [x] System architecture design
 - [ ] Core service layer implementation
 - [ ] Basic CLI interface
-- [ ] REST API endpoints
 
 ### **Phase 2: Feature Completion** (Q2 2025)
 - [ ] Firecrawl compatibility layer
+- [ ] REST API endpoints
 - [ ] Advanced extraction strategies
 - [ ] Session management system
 - [ ] Comprehensive testing

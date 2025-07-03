@@ -624,11 +624,8 @@ While SQLite is used for Phase 1, the system is designed for future migration to
 -- Same schema but with PostgreSQL-specific optimizations
 -- UUID primary keys, partitioning, etc.
 
--- Example Redis cache structure (Future)
--- Key-value patterns for high-performance caching
--- Session:SessionID -> JSON data
--- Cache:CacheKey -> JSON data
--- Job:JobID -> JSON data
+-- Note: Cache remains in SQLite for simplicity
+-- Future PostgreSQL can handle caching with optimized indexes
 ```
 
 ## Format Conversion

@@ -4,7 +4,7 @@
 
 The Firecrawl-compatible API layer provides 100% compatibility with the Firecrawl API specification, allowing existing Firecrawl users to migrate seamlessly to our system. This layer acts as an adapter between the Firecrawl API format and our internal crawler system.
 
-**Important**: This Firecrawl-compatible API has **HIGHEST PRIORITY** for implementation. All development resources should focus on achieving full Firecrawl compatibility before implementing the Native API.
+**Important**: This Firecrawl-compatible API has **HIGH PRIORITY** for implementation, following the CLI interface. The priority order is: CLI (highest) → Firecrawl API (high) → Native API (future). Development resources should focus on CLI first, then Firecrawl compatibility.
 
 ## Groundtruth References
 
@@ -919,7 +919,7 @@ X-RateLimit-Retry-After: 60
 ## Implementation Architecture
 
 ### Priority and Approach
-**HIGHEST PRIORITY**: This Firecrawl-compatible API must be implemented before any Native API features. The implementation should:
+**HIGH PRIORITY**: This Firecrawl-compatible API must be implemented after CLI and before any Native API features. The implementation should:
 
 1. **Exact Specification Compliance**: Follow `groundtruth/firecrawl-openapi.json` exactly
 2. **SQLite Backend**: Use SQLite for all storage needs (sessions, results, cache)
@@ -929,7 +929,7 @@ X-RateLimit-Retry-After: 60
 ### Adapter Layer
 ```python
 class FirecrawlAdapter:
-    """Adapter for Firecrawl API compatibility - HIGHEST PRIORITY implementation."""
+    """Adapter for Firecrawl API compatibility - HIGH PRIORITY implementation."""
     
     def __init__(self, scrape_service, crawl_service, storage_manager):
         self.scrape_service = scrape_service

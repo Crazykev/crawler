@@ -4,7 +4,7 @@
 
 The Native REST API provides a comprehensive RESTful interface for the Crawler system. It follows REST principles with clear resource hierarchy, proper HTTP methods, and consistent response formats. The API supports all crawl4ai capabilities while maintaining the distinction between scraping (single page) and crawling (multiple pages).
 
-**Important**: This Native API has **LOWER PRIORITY** compared to the Firecrawl-compatible API. Implementation focus should be on Firecrawl compatibility first.
+**Important**: This Native API has **LOWEST PRIORITY** in the implementation sequence. The priority order is: CLI (highest) → Firecrawl API (high) → Native API (future). Implementation focus should be on CLI first, then Firecrawl compatibility.
 
 ## Groundtruth References
 
@@ -1118,10 +1118,11 @@ Configure allowed IP addresses for enhanced security:
 - Custom monitoring integrations
 
 ### Development Roadmap
-1. **Phase 1**: Complete Firecrawl-compatible API (HIGH PRIORITY)
-2. **Phase 2**: Implement basic Native API endpoints  
-3. **Phase 3**: Add advanced Native API features
-4. **Phase 4**: GraphQL and real-time features
+1. **Phase 1**: Complete CLI interface (HIGHEST PRIORITY)
+2. **Phase 2**: Complete Firecrawl-compatible API (HIGH PRIORITY)
+3. **Phase 3**: Implement basic Native API endpoints (FUTURE)
+4. **Phase 4**: Add advanced Native API features
+5. **Phase 5**: GraphQL and real-time features
 
 ### Groundtruth Alignment
 - Monitor `groundtruth/crawl4ai_context.md` for new crawl4ai features to integrate

@@ -785,7 +785,7 @@ class MetricsCollector:
 ### Scaling Considerations
 - **Phase 1**: Single-instance SQLite deployment for rapid development
 - **Phase 2**: Multiple instances with shared SQLite database (NFS/network storage)
-- **Phase 3**: Migration to distributed databases when scale requirements grow
+- **Phase 3**: Migration to PostgreSQL when scale requirements grow
 - **SQLite Optimization**: WAL mode, connection pooling, and query optimization
 
 ### Monitoring Requirements
@@ -821,7 +821,7 @@ class MetricsCollector:
 - Advanced content extraction strategies from crawl4ai 0.6.3+
 - Real-time crawling capabilities
 - Advanced analytics and reporting
-- **Database Migration**: Seamless migration from SQLite to PostgreSQL/Redis when scale requirements grow
+- **Database Migration**: Seamless migration from SQLite to PostgreSQL when scale requirements grow
 
 ### Extensibility Points
 - Plugin architecture for custom extractors
@@ -832,6 +832,6 @@ class MetricsCollector:
 
 ### SQLite to Distributed Storage Migration
 - **Data Compatibility**: Maintain compatible data formats for easy migration
-- **Migration Tools**: Automated migration scripts from SQLite to PostgreSQL/Redis
+- **Migration Tools**: Automated migration scripts from SQLite to PostgreSQL
 - **Hybrid Mode**: Support for running both SQLite and distributed storage during migration
 - **Zero-Downtime Migration**: Strategies for migrating without service interruption
