@@ -42,6 +42,18 @@ class ErrorContext:
     user_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.utcnow)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "operation": self.operation,
+            "url": self.url,
+            "session_id": self.session_id,
+            "job_id": self.job_id,
+            "user_id": self.user_id,
+            "metadata": self.metadata,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None
+        }
 
 
 @dataclass
@@ -78,7 +90,7 @@ class CrawlerError(Exception):
         message: str,
         category: ErrorCategory = ErrorCategory.SYSTEM,
         severity: ErrorSeverity = ErrorSeverity.MEDIUM,
-        code: Optional[str] = None,
+        error_code: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
         context: Optional[ErrorContext] = None,
         retryable: bool = False,
@@ -88,8 +100,8 @@ class CrawlerError(Exception):
         self.message = message
         self.category = category
         self.severity = severity
-        self.code = code
-        self.details = details or {}
+        self.error_code = error_code
+        self.details = details
         self.context = context
         self.retryable = retryable
         self.retry_after = retry_after
@@ -102,8 +114,8 @@ class CrawlerError(Exception):
             message=self.message,
             category=self.category,
             severity=self.severity,
-            code=self.code,
-            details=self.details,
+            code=self.error_code,
+            details=self.details or {},
             context=self.context,
             traceback=traceback.format_exc(),
             timestamp=self.timestamp,
@@ -120,28 +132,38 @@ class ValidationError(CrawlerError):
             message,
             category=ErrorCategory.VALIDATION,
             severity=ErrorSeverity.LOW,
-            code="VALIDATION_ERROR",
+            error_code="VALIDATION_ERROR",
             retryable=False,
             **kwargs
         )
+        self.field = field
         if field:
+            if self.details is None:
+                self.details = {}
             self.details["field"] = field
 
 
 class NetworkError(CrawlerError):
     """Error raised when network operations fail."""
     
-    def __init__(self, message: str, status_code: Optional[int] = None, **kwargs):
+    def __init__(self, message: str, status_code: Optional[int] = None, url: Optional[str] = None, **kwargs):
         super().__init__(
             message,
             category=ErrorCategory.NETWORK,
             severity=ErrorSeverity.MEDIUM,
-            code="NETWORK_ERROR",
+            error_code="NETWORK_ERROR",
             retryable=True,
             **kwargs
         )
-        if status_code:
-            self.details["status_code"] = status_code
+        self.status_code = status_code
+        self.url = url
+        if status_code or url:
+            if self.details is None:
+                self.details = {}
+            if status_code:
+                self.details["status_code"] = status_code
+            if url:
+                self.details["url"] = url
 
 
 class TimeoutError(CrawlerError):
@@ -152,28 +174,39 @@ class TimeoutError(CrawlerError):
             message,
             category=ErrorCategory.TIMEOUT,
             severity=ErrorSeverity.MEDIUM,
-            code="TIMEOUT_ERROR",
+            error_code="TIMEOUT_ERROR",
             retryable=True,
             **kwargs
         )
         if timeout_duration:
+            if self.details is None:
+                self.details = {}
             self.details["timeout_duration"] = timeout_duration
 
 
 class ExtractionError(CrawlerError):
     """Error raised when content extraction fails."""
     
-    def __init__(self, message: str, extraction_type: Optional[str] = None, **kwargs):
+    def __init__(self, message: str, strategy: Optional[str] = None, selector: Optional[str] = None, extraction_type: Optional[str] = None, **kwargs):
         super().__init__(
             message,
             category=ErrorCategory.EXTRACTION,
             severity=ErrorSeverity.MEDIUM,
-            code="EXTRACTION_ERROR",
+            error_code="EXTRACTION_ERROR",
             retryable=False,
             **kwargs
         )
-        if extraction_type:
-            self.details["extraction_type"] = extraction_type
+        self.strategy = strategy
+        self.selector = selector
+        if strategy or selector or extraction_type:
+            if self.details is None:
+                self.details = {}
+            if strategy:
+                self.details["strategy"] = strategy
+            if selector:
+                self.details["selector"] = selector
+            if extraction_type:
+                self.details["extraction_type"] = extraction_type
 
 
 class AuthenticationError(CrawlerError):
@@ -184,7 +217,7 @@ class AuthenticationError(CrawlerError):
             message,
             category=ErrorCategory.AUTHENTICATION,
             severity=ErrorSeverity.HIGH,
-            code="AUTHENTICATION_ERROR",
+            error_code="AUTHENTICATION_ERROR",
             retryable=False,
             **kwargs
         )
@@ -198,7 +231,7 @@ class RateLimitError(CrawlerError):
             message,
             category=ErrorCategory.RATE_LIMIT,
             severity=ErrorSeverity.MEDIUM,
-            code="RATE_LIMIT_ERROR",
+            error_code="RATE_LIMIT_ERROR",
             retryable=True,
             retry_after=retry_after,
             **kwargs
@@ -213,11 +246,13 @@ class ConfigurationError(CrawlerError):
             message,
             category=ErrorCategory.CONFIGURATION,
             severity=ErrorSeverity.HIGH,
-            code="CONFIGURATION_ERROR",
+            error_code="CONFIGURATION_ERROR",
             retryable=False,
             **kwargs
         )
         if config_key:
+            if self.details is None:
+                self.details = {}
             self.details["config_key"] = config_key
 
 
@@ -229,19 +264,24 @@ class ResourceError(CrawlerError):
             message,
             category=ErrorCategory.RESOURCE,
             severity=ErrorSeverity.HIGH,
-            code="RESOURCE_ERROR",
+            error_code="RESOURCE_ERROR",
             retryable=True,
             **kwargs
         )
+        self.resource_type = resource_type
         if resource_type:
+            if self.details is None:
+                self.details = {}
             self.details["resource_type"] = resource_type
 
 
 class ErrorHandler:
     """Centralized error handling and recovery."""
     
-    def __init__(self):
-        self.logger = get_logger(__name__)
+    def __init__(self, max_recent_errors: int = 100):
+        self.error_count: int = 0
+        self.recent_errors: List[Dict[str, Any]] = []
+        self.max_recent_errors = max_recent_errors
         self.error_counts: Dict[str, int] = {}
         self.last_errors: Dict[str, datetime] = {}
     
@@ -323,12 +363,34 @@ class ErrorHandler:
     
     def _track_error(self, error_info: ErrorInfo) -> None:
         """Track error occurrences."""
+        # Increment total error count
+        self.error_count += 1
+        
+        # Add to recent errors list (newest first)
+        error_record = {
+            "error_type": error_info.error_type,
+            "message": error_info.message,
+            "category": error_info.category.value,
+            "severity": error_info.severity.value,
+            "context": error_info.context.to_dict() if error_info.context else None,
+            "timestamp": error_info.timestamp.isoformat(),
+            "retryable": error_info.retryable,
+        }
+        
+        self.recent_errors.insert(0, error_record)
+        
+        # Limit the size of recent_errors
+        if len(self.recent_errors) > self.max_recent_errors:
+            self.recent_errors = self.recent_errors[:self.max_recent_errors]
+        
+        # Legacy tracking for compatibility
         error_key = f"{error_info.category}:{error_info.error_type}"
         self.error_counts[error_key] = self.error_counts.get(error_key, 0) + 1
         self.last_errors[error_key] = error_info.timestamp
     
     def _log_error(self, error_info: ErrorInfo) -> None:
         """Log error based on severity."""
+        logger = get_logger(__name__)
         log_message = f"{error_info.error_type}: {error_info.message}"
         
         if error_info.context:
@@ -341,17 +403,17 @@ class ErrorHandler:
             log_message += context_info
         
         if error_info.severity == ErrorSeverity.CRITICAL:
-            self.logger.critical(log_message, extra={"error_info": error_info})
+            logger.critical(log_message, extra={"error_info": error_info})
         elif error_info.severity == ErrorSeverity.HIGH:
-            self.logger.error(log_message, extra={"error_info": error_info})
+            logger.error(log_message, extra={"error_info": error_info})
         elif error_info.severity == ErrorSeverity.MEDIUM:
-            self.logger.warning(log_message, extra={"error_info": error_info})
+            logger.error(log_message, extra={"error_info": error_info})
         else:
-            self.logger.info(log_message, extra={"error_info": error_info})
+            logger.info(log_message, extra={"error_info": error_info})
         
         # Log traceback for debugging if available
         if error_info.traceback and error_info.severity in [ErrorSeverity.HIGH, ErrorSeverity.CRITICAL]:
-            self.logger.debug(f"Traceback for {error_info.error_type}:\n{error_info.traceback}")
+            logger.debug(f"Traceback for {error_info.error_type}:\n{error_info.traceback}")
     
     def _report_error(self, error_info: ErrorInfo) -> None:
         """Report error to monitoring system (placeholder)."""
@@ -381,6 +443,16 @@ class ErrorHandler:
         if isinstance(error, ErrorInfo):
             return error.retryable
         elif isinstance(error, CrawlerError):
+            # Special handling for NetworkError
+            if isinstance(error, NetworkError) and error.status_code:
+                # Non-retryable status codes
+                non_retryable_codes = [400, 401, 403, 404, 405, 410, 422]
+                if error.status_code in non_retryable_codes:
+                    return False
+                # Retryable status codes
+                retryable_codes = [408, 429, 500, 502, 503, 504]
+                if error.status_code in retryable_codes:
+                    return True
             return error.retryable
         else:
             # For generic exceptions, check if they're typically retryable
@@ -422,10 +494,13 @@ class ErrorHandler:
         delay = config.base_delay * (config.exponential_base ** (attempt - 1))
         delay = min(delay, config.max_delay)
         
-        # Add jitter to avoid thundering herd
+        # Add jitter to avoid thundering herd, but ensure minimum delay
         if config.jitter:
             import random
-            delay *= (0.5 + random.random() * 0.5)
+            jitter_factor = (0.5 + random.random() * 0.5)
+            delay *= jitter_factor
+            # Ensure minimum delay is always base_delay
+            delay = max(delay, config.base_delay)
         
         return delay
     
@@ -443,6 +518,43 @@ class ErrorHandler:
             },
             "total_errors": sum(self.error_counts.values())
         }
+    
+    def get_error_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive error statistics."""
+        error_types = {}
+        operations = {}
+        
+        for error_record in self.recent_errors:
+            error_type = error_record["error_type"]
+            error_types[error_type] = error_types.get(error_type, 0) + 1
+            
+            if error_record["context"] and error_record["context"]["operation"]:
+                operation = error_record["context"]["operation"]
+                operations[operation] = operations.get(operation, 0) + 1
+        
+        return {
+            "total_errors": self.error_count,
+            "error_types": error_types,
+            "operations": operations,
+        }
+    
+    def clear_errors(self) -> None:
+        """Clear error history."""
+        self.error_count = 0
+        self.recent_errors.clear()
+        self.error_counts.clear()
+        self.last_errors.clear()
+    
+    def get_recent_errors_by_type(self, error_type: str) -> List[Dict[str, Any]]:
+        """Get recent errors filtered by type."""
+        return [
+            error for error in self.recent_errors
+            if error["error_type"] == error_type
+        ]
+    
+    def get_retry_delay(self, attempt: int) -> float:
+        """Calculate retry delay with exponential backoff."""
+        return self.calculate_retry_delay(attempt)
 
 
 # Global error handler instance
@@ -458,10 +570,18 @@ def get_error_handler() -> ErrorHandler:
 
 
 def handle_error(
-    error: Union[Exception, ErrorInfo],
+    error: Union[Exception, ErrorInfo, str],
     context: Optional[ErrorContext] = None
 ) -> ErrorInfo:
     """Convenience function to handle an error."""
+    # Convert string error to CrawlerError
+    if isinstance(error, str):
+        error = CrawlerError(error)
+    
+    # Create default context if none provided
+    if context is None:
+        context = ErrorContext(operation="unknown")
+    
     return get_error_handler().handle_error(error, context)
 
 

@@ -92,18 +92,20 @@ class DatabaseManager:
     async def setup_database(self) -> None:
         """Set up database with WAL mode and optimizations."""
         try:
+            from sqlalchemy import text
+            
             async with self.get_session() as session:
                 # Enable WAL mode for better concurrency
-                await session.execute("PRAGMA journal_mode=WAL")
+                await session.execute(text("PRAGMA journal_mode=WAL"))
                 
                 # Performance optimizations
-                await session.execute("PRAGMA synchronous=NORMAL")
-                await session.execute("PRAGMA cache_size=10000")
-                await session.execute("PRAGMA temp_store=MEMORY")
-                await session.execute("PRAGMA mmap_size=268435456")  # 256MB
+                await session.execute(text("PRAGMA synchronous=NORMAL"))
+                await session.execute(text("PRAGMA cache_size=10000"))
+                await session.execute(text("PRAGMA temp_store=MEMORY"))
+                await session.execute(text("PRAGMA mmap_size=268435456"))  # 256MB
                 
                 # Enable foreign keys
-                await session.execute("PRAGMA foreign_keys=ON")
+                await session.execute(text("PRAGMA foreign_keys=ON"))
                 
                 await session.commit()
                 logger.info("Database setup completed with optimizations")

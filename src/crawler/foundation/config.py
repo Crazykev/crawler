@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from pydantic_settings import BaseSettings
 
 
@@ -103,10 +103,12 @@ class CrawlerConfig(BaseSettings):
     # Profiles for different use cases
     profiles: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     
-    class Config:
-        env_prefix = "CRAWLER_"
-        env_nested_delimiter = "__"
-        case_sensitive = False
+    model_config = ConfigDict(
+        env_prefix="CRAWLER_",
+        env_nested_delimiter="__",
+        case_sensitive=False,
+        extra="allow"  # Allow extra fields
+    )
         
     @field_validator("storage")
     @classmethod
@@ -154,9 +156,10 @@ class ConfigManager:
     """Manages configuration loading, validation, and access."""
     
     def __init__(self, config_path: Optional[Union[str, Path]] = None):
-        self.config_path = config_path
-        self._config: Optional[CrawlerConfig] = None
-        self._load_config()
+        self.config_path = Path(config_path) if config_path else None
+        self._config: Dict[str, Any] = {}
+        self._pydantic_config: Optional[CrawlerConfig] = None
+        self._load_default_config()
     
     def _get_default_config_path(self) -> Path:
         """Get the default configuration file path."""
@@ -170,40 +173,37 @@ class ConfigManager:
         config_dir.mkdir(parents=True, exist_ok=True)
         return config_dir / "config.yaml"
     
+    def get_default_config_path(self) -> Path:
+        """Get the default configuration file path."""
+        return self._get_default_config_path()
+    
+    def get_system_config_path(self) -> Path:
+        """Get the system configuration file path."""
+        return Path("/etc/crawler/config.yaml")
+    
+    def _load_default_config(self) -> None:
+        """Load default configuration as dict."""
+        # Create default config using Pydantic model
+        default_config = CrawlerConfig()
+        self._config = default_config.model_dump(by_alias=True)
+        self._pydantic_config = default_config
+    
     def _load_config(self) -> None:
-        """Load configuration from file and environment."""
-        config_data = {}
-        
-        # Load from file if it exists
-        if self.config_path:
-            config_file = Path(self.config_path)
-        else:
-            config_file = self._get_default_config_path()
-        
-        if config_file.exists():
-            with open(config_file, 'r', encoding='utf-8') as f:
-                file_data = yaml.safe_load(f) or {}
-                config_data.update(file_data)
-        
-        # Load LLM API keys from environment
-        llm_config = config_data.setdefault("llm", {})
-        
-        if "OPENAI_API_KEY" in os.environ:
-            llm_config["openai_api_key"] = os.environ["OPENAI_API_KEY"]
-        if "ANTHROPIC_API_KEY" in os.environ:
-            llm_config["anthropic_api_key"] = os.environ["ANTHROPIC_API_KEY"]
-        if "GEMINI_API_KEY" in os.environ:
-            llm_config["gemini_api_key"] = os.environ["GEMINI_API_KEY"]
-        
-        # Create configuration with environment variable overrides
-        self._config = CrawlerConfig(**config_data)
+        """Load configuration from file and environment (deprecated method)."""
+        if self.config_path and self.config_path.exists():
+            self.load_from_file()
+        self.load_from_environment()
     
     @property
     def config(self) -> CrawlerConfig:
-        """Get the current configuration."""
-        if self._config is None:
-            self._load_config()
-        return self._config
+        """Get the current configuration as Pydantic model."""
+        if self._pydantic_config is None:
+            try:
+                self._pydantic_config = CrawlerConfig(**self._config)
+            except Exception:
+                # Fallback to default if config is invalid
+                self._pydantic_config = CrawlerConfig()
+        return self._pydantic_config
     
     def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a configuration setting using dot notation.
@@ -216,7 +216,7 @@ class ConfigManager:
             Configuration value or default
         """
         keys = key.split('.')
-        value = self.config
+        value = self._config
         
         try:
             for k in keys:
@@ -224,9 +224,7 @@ class ConfigManager:
                 if k == "global":
                     k = "global_"
                     
-                if hasattr(value, k):
-                    value = getattr(value, k)
-                elif isinstance(value, dict) and k in value:
+                if isinstance(value, dict) and k in value:
                     value = value[k]
                 else:
                     return default
@@ -242,10 +240,9 @@ class ConfigManager:
             value: Value to set
         """
         keys = key.split('.')
-        config_dict = self.config.dict()
         
         # Navigate to the parent of the target key
-        current = config_dict
+        current = self._config
         for k in keys[:-1]:
             if k == "global":
                 k = "global_"
@@ -259,8 +256,8 @@ class ConfigManager:
             final_key = "global_"
         current[final_key] = value
         
-        # Recreate the config object
-        self._config = CrawlerConfig(**config_dict)
+        # Clear cached Pydantic config so it's rebuilt next time
+        self._pydantic_config = None
     
     def validate_config(self) -> Dict[str, Any]:
         """Validate the current configuration.
@@ -275,6 +272,17 @@ class ConfigManager:
         }
         
         try:
+            # Check for required sections in raw config
+            required_sections = ["storage", "scrape", "crawl"]
+            for section in required_sections:
+                if section not in self._config:
+                    result["errors"].append(f"Required section '{section}' is missing")
+            
+            # If we have missing required sections, don't continue validation
+            if result["errors"]:
+                result["valid"] = False
+                return result
+            
             # Test configuration instantiation
             config = self.config
             
@@ -318,6 +326,142 @@ class ConfigManager:
             
         return result
     
+    def get_section(self, section_name: str) -> Optional[Dict[str, Any]]:
+        """Get a configuration section.
+        
+        Args:
+            section_name: Name of the section
+            
+        Returns:
+            Section dictionary or None if not found
+        """
+        section_name = "global_" if section_name == "global" else section_name
+        return self._config.get(section_name)
+    
+    def get_all_settings(self) -> Dict[str, Any]:
+        """Get all configuration settings.
+        
+        Returns:
+            Complete configuration dictionary
+        """
+        return self._config.copy()
+    
+    def load_from_file(self) -> None:
+        """Load configuration from file."""
+        if not self.config_path or not self.config_path.exists():
+            return
+        
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                if self.config_path.suffix.lower() == '.json':
+                    import json
+                    file_data = json.load(f)
+                else:
+                    file_data = yaml.safe_load(f) or {}
+            
+            # Merge with existing config
+            self._deep_merge(self._config, file_data)
+            self._pydantic_config = None
+        except Exception:
+            # Silently ignore file loading errors for now
+            pass
+    
+    def save_to_file(self) -> None:
+        """Save configuration to file."""
+        if not self.config_path:
+            return
+        
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                if self.config_path.suffix.lower() == '.json':
+                    import json
+                    json.dump(self._config, f, indent=2)
+                else:
+                    yaml.dump(self._config, f, default_flow_style=False, indent=2)
+        except Exception:
+            # Silently ignore file saving errors for now
+            pass
+    
+    def load_from_environment(self) -> None:
+        """Load configuration from environment variables."""
+        # Load LLM API keys from environment
+        llm_config = self._config.setdefault("llm", {})
+        
+        if "OPENAI_API_KEY" in os.environ:
+            llm_config["openai_api_key"] = os.environ["OPENAI_API_KEY"]
+        if "ANTHROPIC_API_KEY" in os.environ:
+            llm_config["anthropic_api_key"] = os.environ["ANTHROPIC_API_KEY"]
+        if "GEMINI_API_KEY" in os.environ:
+            llm_config["gemini_api_key"] = os.environ["GEMINI_API_KEY"]
+        
+        # Handle CRAWLER_ prefixed environment variables
+        for key, value in os.environ.items():
+            if key.startswith("CRAWLER_"):
+                # Convert CRAWLER_SCRAPE_TIMEOUT to scrape.timeout
+                config_key = key[8:].lower().replace("_", ".")
+                
+                # Try to convert to appropriate type
+                try:
+                    if value.lower() in ("true", "false"):
+                        value = value.lower() == "true"
+                    elif value.isdigit():
+                        value = int(value)
+                    elif "." in value and value.replace(".", "").isdigit():
+                        value = float(value)
+                except (ValueError, AttributeError):
+                    pass
+                
+                self.set_setting(config_key, value)
+        
+        self._pydantic_config = None
+    
+    def merge_config(self, new_config: Dict[str, Any]) -> None:
+        """Merge new configuration with existing.
+        
+        Args:
+            new_config: Configuration data to merge
+        """
+        self._deep_merge(self._config, new_config)
+        self._pydantic_config = None
+    
+    def _deep_merge(self, target: Dict[str, Any], source: Dict[str, Any]) -> None:
+        """Deep merge source into target dictionary."""
+        for key, value in source.items():
+            if key in target and isinstance(target[key], dict) and isinstance(value, dict):
+                self._deep_merge(target[key], value)
+            else:
+                target[key] = value
+    
+    def load_hierarchical(self) -> None:
+        """Load configuration hierarchically (system -> user -> custom)."""
+        # Start with default config
+        self._load_default_config()
+        
+        # Load system config
+        system_path = self.get_system_config_path()
+        if system_path.exists():
+            temp_manager = ConfigManager(system_path)
+            temp_manager.load_from_file()
+            self.merge_config(temp_manager._config)
+        
+        # Load user config
+        user_path = self.get_default_config_path()
+        if user_path.exists():
+            temp_manager = ConfigManager(user_path)
+            temp_manager.load_from_file()
+            self.merge_config(temp_manager._config)
+        
+        # Load custom config if specified
+        if self.config_path and self.config_path.exists():
+            temp_manager = ConfigManager(self.config_path)
+            temp_manager.load_from_file()
+            self.merge_config(temp_manager._config)
+        
+        # Load environment variables last
+        self.load_from_environment()
+    
     def create_default_config(self, config_path: Optional[Path] = None) -> Path:
         """Create a default configuration file.
         
@@ -334,7 +478,7 @@ class ConfigManager:
         
         # Create default configuration
         default_config = CrawlerConfig()
-        config_dict = default_config.dict(by_alias=True)
+        config_dict = default_config.model_dump(by_alias=True)
         
         # Write to YAML file
         with open(config_path, 'w', encoding='utf-8') as f:
@@ -344,8 +488,10 @@ class ConfigManager:
     
     def reload_config(self) -> None:
         """Reload configuration from file."""
-        self._config = None
-        self._load_config()
+        self._load_default_config()
+        if self.config_path and self.config_path.exists():
+            self.load_from_file()
+        self.load_from_environment()
 
 
 # Global configuration manager instance

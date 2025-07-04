@@ -39,10 +39,10 @@ def get_database_url() -> str:
     if url:
         return url
     
-    # Fallback to default SQLite path
+    # Fallback to default SQLite path with aiosqlite driver
     db_path = Path.home() / ".crawler" / "crawler.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    return f"sqlite:///{db_path}"
+    return f"sqlite+aiosqlite:///{db_path}"
 
 
 def run_migrations_offline() -> None:

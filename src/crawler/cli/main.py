@@ -145,12 +145,12 @@ def cli(ctx, config, verbose, quiet, no_color):
 
 
 # Add command groups
-cli.add_command(scrape.scrape)
-cli.add_command(crawl.crawl)
-cli.add_command(batch.batch)
-cli.add_command(session.session)
-cli.add_command(config.config)
-cli.add_command(status.status)
+cli.add_command(scrape)
+cli.add_command(crawl)
+cli.add_command(batch)
+cli.add_command(session)
+cli.add_command(config)
+cli.add_command(status)
 
 
 def main(args: Optional[list] = None, standalone_mode: bool = True) -> int:

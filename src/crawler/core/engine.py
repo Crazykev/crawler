@@ -117,13 +117,14 @@ class CrawlEngine:
                 # CSS selector based extraction
                 selectors = strategy_config.get("selectors", {})
                 if isinstance(selectors, str):
-                    # Simple selector
-                    from crawl4ai.extraction_strategy import CssExtractionStrategy
-                    return CssExtractionStrategy(selectors)
+                    # Simple selector - convert to dict format
+                    selectors_dict = {"content": selectors}
+                    from crawl4ai.extraction_strategy import JsonCssExtractionStrategy
+                    return JsonCssExtractionStrategy(selectors_dict)
                 elif isinstance(selectors, dict):
                     # Multiple selectors
-                    from crawl4ai.extraction_strategy import CssExtractionStrategy
-                    return CssExtractionStrategy(selectors)
+                    from crawl4ai.extraction_strategy import JsonCssExtractionStrategy
+                    return JsonCssExtractionStrategy(selectors)
             
             elif strategy_type == "llm":
                 # LLM-based extraction
@@ -195,6 +196,7 @@ class CrawlEngine:
         
         with timer("crawl_engine.scrape_single"):
             start_time = datetime.utcnow()
+            crawl_result = None
             
             try:
                 # Check cache first if enabled
@@ -241,10 +243,35 @@ class CrawlEngine:
                 # Execute the crawl
                 self.logger.debug(f"Starting crawl for URL: {url}")
                 
-                async with crawler:
-                    crawl_result = await crawler.arun(**crawl_params)
+                try:
+                    async with crawler:
+                        crawl_result = await crawler.arun(**crawl_params)
+                except asyncio.TimeoutError as e:
+                    error_msg = f"Timeout scraping {url}: {e}"
+                    self.metrics.increment_counter("crawl_engine.scrapes.timeout")
+                    self.logger.error(error_msg)
+                    timeout_error = TimeoutError(error_msg, timeout_duration=options.get("timeout", 30))
+                    handle_error(timeout_error, context)
+                    raise timeout_error
+                except Exception as e:
+                    error_msg = f"Failed to scrape {url}: {e}"
+                    self.metrics.increment_counter("crawl_engine.scrapes.error")
+                    self.logger.error(error_msg)
+                    
+                    if "connection" in str(e).lower():
+                        network_error = NetworkError(error_msg)
+                        handle_error(network_error, context)
+                        raise network_error
+                    else:
+                        extraction_error = ExtractionError(error_msg)
+                        handle_error(extraction_error, context)
+                        raise extraction_error
                 
                 # Process the result
+                if crawl_result is None:
+                    error_msg = f"Crawl failed for {url}: No result returned"
+                    raise NetworkError(error_msg)
+                
                 if not crawl_result.success:
                     error_msg = f"Crawl failed for {url}: {crawl_result.error_message}"
                     raise NetworkError(error_msg, status_code=crawl_result.status_code)
@@ -290,23 +317,17 @@ class CrawlEngine:
                 self.logger.info(f"Successfully scraped {url} in {load_time:.2f}s")
                 return result_data
                 
-            except asyncio.TimeoutError as e:
-                error_msg = f"Timeout scraping {url}: {e}"
-                self.metrics.increment_counter("crawl_engine.scrapes.timeout")
-                self.logger.error(error_msg)
-                handle_error(TimeoutError(error_msg, timeout_duration=options.get("timeout", 30)), context)
+            except (TimeoutError, NetworkError, ExtractionError):
+                # Re-raise our custom errors
                 raise
-                
             except Exception as e:
-                error_msg = f"Failed to scrape {url}: {e}"
+                # Handle any other unexpected exceptions
+                error_msg = f"Unexpected error scraping {url}: {e}"
                 self.metrics.increment_counter("crawl_engine.scrapes.error")
                 self.logger.error(error_msg)
-                
-                if "connection" in str(e).lower():
-                    handle_error(NetworkError(error_msg), context)
-                else:
-                    handle_error(ExtractionError(error_msg), context)
-                raise
+                extraction_error = ExtractionError(error_msg)
+                handle_error(extraction_error, context)
+                raise extraction_error
     
     def _extract_links(self, crawl_result) -> List[Dict[str, Any]]:
         """Extract links from crawl result.
@@ -385,6 +406,10 @@ class CrawlEngine:
             # Parse URLs
             link_parsed = urlparse(link_url)
             base_parsed = urlparse(base_url)
+            
+            # Check if base URL is valid (has scheme and netloc)
+            if not base_parsed.scheme or not base_parsed.netloc:
+                return "unknown"
             
             # Handle relative URLs
             if not link_parsed.netloc:
