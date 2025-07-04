@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complex Test Page with JavaScript</title>
+    <script>
+        function loadMore() {
+            const content = document.createElement('div');
+            content.className = 'loaded-content';
+            content.innerHTML = '<p>Dynamically loaded content</p>';
+            document.getElementById('dynamic-container').appendChild(content);
+        }
+        
+        // Simulate loading delay
+        setTimeout(() => {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('main-content').style.display = 'block';
+        }, 1000);
+    </script>
+</head>
+<body>
+    <div id="loading">Loading...</div>
+    
+    <div id="main-content" style="display: none;">
+        <header>
+            <h1>Complex Test Page</h1>
+            <nav>
+                <a href="/blog/category/tech">Tech Articles</a>
+                <a href="/blog/category/news">News Articles</a>
+                <a href="/admin">Admin Section</a>
+            </nav>
+        </header>
+        
+        <main class="article-content">
+            <article>
+                <h2>Main Article Title</h2>
+                <div class="metadata">
+                    <span class="author">John Doe</span>
+                    <span class="date">2025-07-03</span>
+                    <span class="category">Technology</span>
+                </div>
+                
+                <div class="content">
+                    <p>This is the main article content with <strong>rich formatting</strong>.</p>
+                    <p>It contains multiple paragraphs and various elements.</p>
+                    
+                    <h3>Subsection</h3>
+                    <ul>
+                        <li>List item 1</li>
+                        <li>List item 2 with <a href="/related-article">related link</a></li>
+                        <li>List item 3</li>
+                    </ul>
+                    
+                    <blockquote>
+                        This is a quoted section that might be important.
+                    </blockquote>
+                    
+                    <img src="/images/article-image.jpg" alt="Article illustration" width="600" height="400">
+                </div>
+                
+                <button onclick="loadMore()">Load More Content</button>
+                <div id="dynamic-container"></div>
+            </article>
+            
+            <aside class="sidebar">
+                <h3>Related Articles</h3>
+                <ul>
+                    <li><a href="/article/1">Related Article 1</a></li>
+                    <li><a href="/article/2">Related Article 2</a></li>
+                    <li><a href="/article/3">Related Article 3</a></li>
+                </ul>
+                
+                <div class="advertisement">
+                    <img src="/ads/banner.jpg" alt="Advertisement" width="300" height="250">
+                </div>
+            </aside>
+        </main>
+        
+        <footer>
+            <div class="footer-links">
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms of Service</a>
+                <a href="/contact">Contact Us</a>
+            </div>
+            <p>&copy; 2025 Complex Test Site. All rights reserved.</p>
+        </footer>
+    </div>
+</body>
+</html>

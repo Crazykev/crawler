@@ -5,7 +5,7 @@ import tempfile
 import pytest
 from pathlib import Path
 from typing import Dict, Any
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch
 
 from crawler.foundation.config import ConfigManager
 from crawler.foundation.errors import ErrorHandler
@@ -263,6 +263,29 @@ def mock_async_response():
     response.url = "https://example.com"
     
     return response
+
+
+@pytest.fixture
+def mock_crawl4ai():
+    """Create a mock crawl4ai AsyncWebCrawler instance."""
+    with patch('src.crawler.core.engine.AsyncWebCrawler') as mock_crawler_class:
+        mock_crawler = Mock()
+        mock_crawler.arun = AsyncMock()
+        mock_crawler.close = AsyncMock()
+        
+        # Ensure the async context manager returns the same mock instance
+        async def mock_aenter(self):
+            return mock_crawler
+        
+        async def mock_aexit(self, exc_type, exc_val, exc_tb):
+            return None
+        
+        mock_crawler.__aenter__ = mock_aenter
+        mock_crawler.__aexit__ = mock_aexit
+        
+        mock_crawler_class.return_value = mock_crawler
+        
+        yield mock_crawler
 
 
 @pytest.fixture(autouse=True)

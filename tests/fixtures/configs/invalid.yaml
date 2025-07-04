@@ -1,0 +1,24 @@
+# Invalid configuration for testing error handling
+version: "1.0"
+
+# Invalid settings that should cause validation errors
+scrape:
+  timeout: -5  # Invalid negative timeout
+  retry_count: "invalid"  # Invalid type
+  headless: "not_boolean"  # Invalid boolean
+
+crawl:
+  max_depth: 0  # Invalid zero depth
+  max_pages: -10  # Invalid negative pages
+  concurrent_requests: "five"  # Invalid type
+
+browser:
+  viewport:
+    width: "invalid"  # Invalid type
+    height: -100  # Invalid negative value
+
+storage:
+  database_path: "/root/readonly/database.db"  # Path that might not be writable
+  retention_days: -1  # Invalid negative value
+
+# Missing required sections should also be tested

@@ -317,3 +317,229 @@ class TestConfigManagerIntegration:
         # Original should reload correctly
         config_manager.reload_config()
         assert config_manager.get_setting("test.modified") is True
+
+
+class TestConfigManagerEdgeCases:
+    """Edge case tests for ConfigManager."""
+    
+    def test_get_setting_with_empty_key(self, config_manager):
+        """Test getting setting with empty key."""
+        result = config_manager.get_setting("", default="empty")
+        assert result == "empty"
+    
+    def test_get_setting_with_none_key(self, config_manager):
+        """Test getting setting with None key."""
+        with pytest.raises(AttributeError):
+            config_manager.get_setting(None)
+    
+    def test_set_setting_with_empty_key(self, config_manager):
+        """Test setting with empty key."""
+        config_manager.set_setting("", "empty_value")
+        # Empty key creates a root-level key
+        assert config_manager.get_setting("") == "empty_value"
+    
+    def test_set_setting_deep_nested(self, config_manager):
+        """Test setting deeply nested configuration."""
+        config_manager.set_setting("level1.level2.level3.level4.value", "deep")
+        assert config_manager.get_setting("level1.level2.level3.level4.value") == "deep"
+        assert config_manager.get_setting("level1.level2.level3.level4") == {"value": "deep"}
+    
+    def test_merge_config_with_conflicting_types(self, config_manager):
+        """Test merging configs where same key has different types."""
+        # Set a string value
+        config_manager.set_setting("conflict.value", "string")
+        
+        # Merge with dict value
+        new_config = {
+            "conflict": {
+                "value": {"nested": "dict"}
+            }
+        }
+        config_manager.merge_config(new_config)
+        
+        # Dict should override string
+        assert config_manager.get_setting("conflict.value.nested") == "dict"
+    
+    def test_load_from_file_corrupted_yaml(self, temp_dir):
+        """Test loading from corrupted YAML file."""
+        config_file = temp_dir / "corrupted.yaml"
+        with open(config_file, 'w') as f:
+            f.write("invalid: yaml: content: [unclosed")
+        
+        config_manager = ConfigManager(config_path=config_file)
+        # Should not raise exception, should use defaults
+        config_manager.load_from_file()
+        assert isinstance(config_manager._config, dict)
+    
+    def test_load_from_file_corrupted_json(self, temp_dir):
+        """Test loading from corrupted JSON file."""
+        config_file = temp_dir / "corrupted.json"
+        with open(config_file, 'w') as f:
+            f.write('{"invalid": json, "content"}')
+        
+        config_manager = ConfigManager(config_path=config_file)
+        # Should not raise exception, should use defaults
+        config_manager.load_from_file()
+        assert isinstance(config_manager._config, dict)
+    
+    def test_save_to_file_permission_error(self, temp_dir, config_manager):
+        """Test saving to file with permission error."""
+        # Create read-only directory
+        readonly_dir = temp_dir / "readonly"
+        readonly_dir.mkdir()
+        readonly_dir.chmod(0o444)
+        
+        config_file = readonly_dir / "test.yaml"
+        config_manager.config_path = config_file
+        
+        # Should not raise exception
+        config_manager.save_to_file()
+        
+        # Cleanup
+        readonly_dir.chmod(0o755)
+    
+    def test_validate_config_with_exception(self, config_manager):
+        """Test config validation when required sections are missing."""
+        # Remove all required sections to force validation failure
+        config_manager._config.clear()
+        
+        result = config_manager.validate_config()
+        assert result["valid"] is False
+        assert len(result["errors"]) > 0
+    
+    def test_environment_variable_type_conversion(self):
+        """Test automatic type conversion from environment variables."""
+        with patch.dict("os.environ", {
+            "CRAWLER_TEST_BOOL_TRUE": "true",
+            "CRAWLER_TEST_BOOL_FALSE": "false", 
+            "CRAWLER_TEST_INT": "123",
+            "CRAWLER_TEST_FLOAT": "45.67",
+            "CRAWLER_TEST_STRING": "just_a_string"
+        }):
+            config_manager = ConfigManager()
+            config_manager.load_from_environment()
+            
+            assert config_manager.get_setting("test.bool.true") is True
+            assert config_manager.get_setting("test.bool.false") is False
+            assert config_manager.get_setting("test.int") == 123
+            assert config_manager.get_setting("test.float") == 45.67
+            assert config_manager.get_setting("test.string") == "just_a_string"
+    
+    def test_environment_variable_invalid_conversion(self):
+        """Test environment variable conversion with invalid values."""
+        with patch.dict("os.environ", {
+            "CRAWLER_TEST_INVALID_FLOAT": "not.a.float"
+        }):
+            config_manager = ConfigManager()
+            config_manager.load_from_environment()
+            
+            # Should keep as string if conversion fails
+            assert config_manager.get_setting("test.invalid.float") == "not.a.float"
+    
+    def test_get_section_with_global_alias(self, config_manager):
+        """Test getting section with global alias handling."""
+        # Set a global section value
+        config_manager.set_setting("global.test", "global_value")
+        
+        # Should be accessible via "global_" internal name
+        section = config_manager.get_section("global")
+        assert section is not None
+        assert section.get("test") == "global_value"
+    
+    def test_create_default_config_existing_file(self, temp_dir):
+        """Test creating default config when file already exists."""
+        config_file = temp_dir / "existing.yaml"
+        config_file.write_text("existing: content")
+        
+        config_manager = ConfigManager()
+        created_path = config_manager.create_default_config(config_file)
+        
+        assert created_path == config_file
+        # Should overwrite existing file
+        with open(config_file, 'r') as f:
+            content = f.read()
+        assert "existing: content" not in content
+        assert "version:" in content  # Default config content
+    
+    def test_config_property_with_invalid_data(self, config_manager):
+        """Test config property when internal data is invalid."""
+        # Corrupt internal config
+        original_config = config_manager._config.copy()
+        config_manager._config = {"invalid": "structure"}
+        config_manager._pydantic_config = None
+        
+        # Should fallback to default config
+        config = config_manager.config
+        assert config is not None
+        assert hasattr(config, "version")
+        
+        # Restore original
+        config_manager._config = original_config
+    
+    def test_hierarchical_loading_with_missing_files(self, temp_dir):
+        """Test hierarchical loading when some files are missing."""
+        # Only create custom config
+        custom_config = {"custom": {"only": "value"}}
+        custom_file = temp_dir / "custom.yaml"
+        with open(custom_file, 'w') as f:
+            yaml.dump(custom_config, f)
+        
+        with patch.object(ConfigManager, 'get_system_config_path', return_value=temp_dir / "nonexistent_system.yaml"):
+            with patch.object(ConfigManager, 'get_default_config_path', return_value=temp_dir / "nonexistent_user.yaml"):
+                config_manager = ConfigManager(config_path=custom_file)
+                config_manager.load_hierarchical()
+                
+                # Should still work with just the custom config
+                assert config_manager.get_setting("custom.only") == "value"
+                # Should have default values
+                assert config_manager.get_setting("scrape.timeout") is not None
+    
+    def test_deep_merge_with_lists(self, config_manager):
+        """Test deep merge behavior with lists."""
+        config_manager.set_setting("test.list", ["original", "items"])
+        
+        new_config = {
+            "test": {
+                "list": ["new", "items"]
+            }
+        }
+        config_manager.merge_config(new_config)
+        
+        # Lists should be replaced, not merged
+        result = config_manager.get_setting("test.list")
+        assert result == ["new", "items"]
+    
+    def test_config_path_expansion(self, temp_dir):
+        """Test path expansion in configuration values."""
+        import os
+        
+        # Create config with tilde paths
+        config_data = {
+            "storage": {
+                "database_path": "~/test.db",
+                "results_dir": "~/results"
+            },
+            "output": {
+                "templates_dir": "~/templates"
+            },
+            "global": {
+                "log_file": "~/logs/test.log"
+            }
+        }
+        
+        config_file = temp_dir / "path_test.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(config_data, f)
+        
+        config_manager = ConfigManager(config_path=config_file)
+        config_manager.load_from_file()
+        
+        # Access config property to trigger path expansion
+        config = config_manager.config
+        
+        # Paths should be expanded
+        assert not config.storage.database_path.startswith("~")
+        assert not config.storage.results_dir.startswith("~")
+        assert not config.output.templates_dir.startswith("~")
+        if config.global_.log_file:  # log_file can be None
+            assert not config.global_.log_file.startswith("~")

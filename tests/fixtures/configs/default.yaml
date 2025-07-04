@@ -1,0 +1,86 @@
+# Test configuration file based on CLI interface specifications
+version: "1.0"
+
+# Global settings
+global:
+  log_level: DEBUG
+  log_file: null  # Use stdout for tests
+  max_workers: 2
+
+# Default scrape settings
+scrape:
+  timeout: 10
+  headless: true
+  retry_count: 1
+  retry_delay: 0.1
+  cache_enabled: false
+  cache_ttl: 300
+
+# Default crawl settings
+crawl:
+  max_depth: 2
+  max_pages: 10
+  max_duration: 300
+  delay: 0.1
+  concurrent_requests: 2
+  respect_robots: false  # Disable for testing
+
+# Browser settings
+browser:
+  user_agent: "TestCrawler/1.0"
+  viewport:
+    width: 1024
+    height: 768
+  proxy:
+    enabled: false
+    url: ""
+    username: ""
+    password: ""
+
+# LLM settings
+llm:
+  default_provider: openai
+  openai:
+    api_key: "test-key"
+    model: "gpt-4o-mini"
+  anthropic:
+    api_key: "test-key"
+    model: "claude-3-haiku-20240307"
+
+# Storage settings (SQLite-based)
+storage:
+  database_path: ":memory:"
+  results_dir: "/tmp/test_results"
+  cache_ttl: 300
+  session_timeout: 300
+  retention_days: 1
+  sqlite_config:
+    wal_mode: false  # Disable for in-memory testing
+    journal_mode: MEMORY
+    synchronous: OFF
+    cache_size: 1000
+
+# Output settings
+output:
+  default_format: markdown
+  templates_dir: "/tmp/test_templates"
+  create_index: false
+  compress_results: false
+
+# Test profiles
+profiles:
+  news:
+    scrape:
+      user_agent: "NewsBot/1.0"
+      timeout: 15
+    crawl:
+      max_pages: 20
+      delay: 0.2
+  
+  ecommerce:
+    scrape:
+      timeout: 20
+      screenshot: true
+    crawl:
+      max_depth: 3
+      delay: 0.05

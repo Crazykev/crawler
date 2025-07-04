@@ -1,0 +1,40 @@
+# News-specific test configuration profile
+version: "1.0"
+
+# News extraction settings
+scrape:
+  timeout: 45
+  user_agent: "NewsBot/1.0"
+  retry_count: 2
+  extract_strategy: css
+  css_selectors:
+    title: "h1, .article-title, .headline"
+    content: ".article-content, .story-body, .entry-content"
+    author: ".author, .byline, .writer"
+    date: ".date, .published, .timestamp"
+    category: ".category, .section, .topic"
+
+# News crawling settings
+crawl:
+  max_pages: 200
+  delay: 2.0
+  include_patterns:
+    - ".*article.*"
+    - ".*news.*"
+    - ".*story.*"
+  exclude_patterns:
+    - ".*admin.*"
+    - ".*login.*"
+    - ".*comment.*"
+    - ".*advertisement.*"
+
+# Output optimized for news
+output:
+  default_format: json
+  fields:
+    - title
+    - content
+    - author
+    - date
+    - category
+    - url

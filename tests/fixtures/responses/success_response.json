@@ -1,0 +1,45 @@
+{
+  "url": "https://example.com",
+  "title": "Example Page",
+  "success": true,
+  "status_code": 200,
+  "content": {
+    "markdown": "# Example Page\n\nThis is example content with some text.\n\n## Section\n\nMore content here.",
+    "html": "<html><head><title>Example Page</title></head><body><h1>Example Page</h1><p>This is example content with some text.</p><h2>Section</h2><p>More content here.</p></body></html>",
+    "text": "Example Page\n\nThis is example content with some text.\n\nSection\n\nMore content here.",
+    "extracted_data": {
+      "title": "Example Page",
+      "author": "Test Author",
+      "date": "2025-07-03",
+      "summary": "This is a test page for demonstration"
+    }
+  },
+  "links": [
+    {
+      "url": "https://example.com/page1",
+      "text": "Page 1",
+      "type": "internal"
+    },
+    {
+      "url": "https://external.com",
+      "text": "External Link",
+      "type": "external"
+    }
+  ],
+  "images": [
+    {
+      "src": "https://example.com/image.jpg",
+      "alt": "Example image",
+      "width": 600,
+      "height": 400,
+      "type": "image"
+    }
+  ],
+  "metadata": {
+    "load_time": 1.23,
+    "timestamp": "2025-07-03T10:30:00Z",
+    "size": 5432,
+    "encoding": "utf-8",
+    "extraction_strategy": "auto"
+  }
+}

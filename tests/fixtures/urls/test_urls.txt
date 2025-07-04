@@ -1,0 +1,5 @@
+https://example.com
+https://httpbin.org/html
+https://jsonplaceholder.typicode.com/posts/1
+https://www.wikipedia.org
+https://news.ycombinator.com

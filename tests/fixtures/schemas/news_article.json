@@ -1,0 +1,43 @@
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "The main title of the article"
+    },
+    "author": {
+      "type": "string",
+      "description": "The author of the article"
+    },
+    "date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Publication date of the article"
+    },
+    "content": {
+      "type": "string",
+      "description": "The main content/body of the article"
+    },
+    "category": {
+      "type": "string",
+      "description": "Article category or section"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Article tags or keywords"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Brief summary of the article"
+    },
+    "word_count": {
+      "type": "integer",
+      "description": "Approximate word count of the article"
+    }
+  },
+  "required": ["title", "content"],
+  "additionalProperties": false
+}

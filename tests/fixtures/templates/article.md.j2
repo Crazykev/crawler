@@ -1,0 +1,33 @@
+# {{ title }}
+
+**Author:** {{ author or "Unknown" }}  
+**Date:** {{ date or "Not specified" }}  
+**Category:** {{ category or "General" }}  
+**URL:** {{ url }}
+
+---
+
+## Content
+
+{{ content }}
+
+{% if links and links|length > 0 %}
+## Links
+
+{% for link in links %}
+- [{{ link.text or link.url }}]({{ link.url }})
+{% endfor %}
+{% endif %}
+
+{% if images and images|length > 0 %}
+## Images
+
+{% for image in images %}
+- ![{{ image.alt or "Image" }}]({{ image.src }})
+{% endfor %}
+{% endif %}
+
+---
+
+*Scraped on {{ metadata.timestamp }}*  
+*Load time: {{ metadata.load_time }}s*

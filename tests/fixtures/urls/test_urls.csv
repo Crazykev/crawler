@@ -1,0 +1,6 @@
+id,url,category,priority
+1,https://example.com,test,high
+2,https://httpbin.org/html,test,medium
+3,https://jsonplaceholder.typicode.com/posts/1,api,low
+4,https://www.wikipedia.org,reference,medium
+5,https://news.ycombinator.com,news,high
