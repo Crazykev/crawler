@@ -5,8 +5,8 @@ import yaml
 from pathlib import Path
 from unittest.mock import patch, mock_open
 
-from crawler.foundation.config import ConfigManager
-from crawler.foundation.errors import ConfigurationError
+from src.crawler.foundation.config import ConfigManager
+from src.crawler.foundation.errors import ConfigurationError
 
 
 class TestConfigManager:

@@ -4,20 +4,31 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
 
-from crawler.services.scrape import ScrapeService
-from crawler.foundation.errors import NetworkError, ValidationError
+from src.crawler.services.scrape import ScrapeService
+from src.crawler.foundation.errors import NetworkError, ValidationError
 
 
 class TestScrapeService:
     """Test suite for ScrapeService."""
     
     @pytest.mark.asyncio
-    async def test_initialize(self, scrape_service):
+    async def test_initialize(self, scrape_service_factory, mock_storage_manager):
         """Test service initialization."""
-        # Service should already be initialized from fixture
+        # Create service from factory with mock storage manager
+        scrape_service = scrape_service_factory(storage_manager=mock_storage_manager)
+        
+        # Mock the initialize method to avoid async generator issues
+        mock_storage_manager.initialize = AsyncMock()
+        
+        await scrape_service.initialize()
+        
+        # Service should be properly initialized
         assert scrape_service.crawl_engine is not None
         assert scrape_service.storage_manager is not None
         assert scrape_service.config_manager is not None
+        
+        # Verify that initialize was called on storage manager
+        mock_storage_manager.initialize.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_scrape_single_success(self, scrape_service, sample_scrape_result):
@@ -26,7 +37,7 @@ class TestScrapeService:
         options = {"headless": True, "timeout": 10}
         
         # Mock the crawl engine response
-        scrape_service.crawl_engine.scrape_page.return_value = sample_scrape_result
+        scrape_service.crawl_engine.scrape_single.return_value = sample_scrape_result
         
         result = await scrape_service.scrape_single(
             url=url,
@@ -40,10 +51,13 @@ class TestScrapeService:
         assert result["content"] == "This is example content."
         
         # Verify crawl engine was called correctly
-        scrape_service.crawl_engine.scrape_page.assert_called_once()
-        call_args = scrape_service.crawl_engine.scrape_page.call_args
+        scrape_service.crawl_engine.scrape_single.assert_called_once()
+        call_args = scrape_service.crawl_engine.scrape_single.call_args
         assert call_args[1]["url"] == url
-        assert call_args[1]["options"] == options
+        # Check that our original options are present (service may add defaults)
+        actual_options = call_args[1]["options"]
+        assert actual_options["headless"] == options["headless"]
+        assert actual_options["timeout"] == options["timeout"]
     
     @pytest.mark.asyncio
     async def test_scrape_single_with_extraction_strategy(self, scrape_service, sample_scrape_result):
@@ -54,7 +68,7 @@ class TestScrapeService:
             "selectors": ".content"
         }
         
-        scrape_service.crawl_engine.scrape_page.return_value = sample_scrape_result
+        scrape_service.crawl_engine.scrape_single.return_value = sample_scrape_result
         
         result = await scrape_service.scrape_single(
             url=url,
@@ -64,7 +78,7 @@ class TestScrapeService:
         assert result["success"] is True
         
         # Verify extraction strategy was passed
-        call_args = scrape_service.crawl_engine.scrape_page.call_args
+        call_args = scrape_service.crawl_engine.scrape_single.call_args
         assert call_args[1]["extraction_strategy"] == extraction_strategy
     
     @pytest.mark.asyncio
@@ -73,7 +87,7 @@ class TestScrapeService:
         url = "https://example.com"
         
         # Mock network error
-        scrape_service.crawl_engine.scrape_page.side_effect = NetworkError(
+        scrape_service.crawl_engine.scrape_single.side_effect = NetworkError(
             "Connection failed", status_code=500
         )
         
@@ -99,7 +113,7 @@ class TestScrapeService:
         url = "https://example.com"
         session_id = "test-session-123"
         
-        scrape_service.crawl_engine.scrape_page.return_value = sample_scrape_result
+        scrape_service.crawl_engine.scrape_single.return_value = sample_scrape_result
         
         result = await scrape_service.scrape_single(
             url=url,
@@ -109,7 +123,7 @@ class TestScrapeService:
         assert result["success"] is True
         
         # Verify session ID was passed
-        call_args = scrape_service.crawl_engine.scrape_page.call_args
+        call_args = scrape_service.crawl_engine.scrape_single.call_args
         assert call_args[1]["session_id"] == session_id
     
     @pytest.mark.asyncio
@@ -117,7 +131,7 @@ class TestScrapeService:
         """Test scraping with result storage."""
         url = "https://example.com"
         
-        scrape_service.crawl_engine.scrape_page.return_value = sample_scrape_result
+        scrape_service.crawl_engine.scrape_single.return_value = sample_scrape_result
         scrape_service.storage_manager.store_crawl_result = AsyncMock()
         
         result = await scrape_service.scrape_single(
@@ -136,7 +150,7 @@ class TestScrapeService:
         urls = ["https://example.com", "https://test.com"]
         
         # Mock successful responses for both URLs
-        scrape_service.crawl_engine.scrape_page.return_value = sample_scrape_result
+        scrape_service.crawl_engine.scrape_single.return_value = sample_scrape_result
         
         results = await scrape_service.scrape_batch(
             urls=urls,
@@ -149,7 +163,7 @@ class TestScrapeService:
         assert results[1]["url"] == urls[1]
         
         # Verify both URLs were processed
-        assert scrape_service.crawl_engine.scrape_page.call_count == 2
+        assert scrape_service.crawl_engine.scrape_single.call_count == 2
     
     @pytest.mark.asyncio
     async def test_scrape_batch_partial_failure(self, scrape_service, sample_scrape_result):
@@ -162,7 +176,7 @@ class TestScrapeService:
                 raise NetworkError("Connection failed")
             return sample_scrape_result
         
-        scrape_service.crawl_engine.scrape_page.side_effect = mock_scrape
+        scrape_service.crawl_engine.scrape_single.side_effect = mock_scrape
         
         results = await scrape_service.scrape_batch(
             urls=urls,
@@ -180,7 +194,7 @@ class TestScrapeService:
         urls = ["https://bad-url.com", "https://example.com"]
         
         # First URL fails
-        scrape_service.crawl_engine.scrape_page.side_effect = NetworkError("Connection failed")
+        scrape_service.crawl_engine.scrape_single.side_effect = NetworkError("Connection failed")
         
         with pytest.raises(NetworkError):
             await scrape_service.scrape_batch(
@@ -193,7 +207,7 @@ class TestScrapeService:
         """Test batch scraping with delay between requests."""
         urls = ["https://example.com", "https://test.com"]
         
-        scrape_service.crawl_engine.scrape_page.return_value = sample_scrape_result
+        scrape_service.crawl_engine.scrape_single.return_value = sample_scrape_result
         
         start_time = datetime.now()
         results = await scrape_service.scrape_batch(
@@ -342,7 +356,7 @@ class TestScrapeService:
             "output_format": "markdown"
         }
         
-        scrape_service.crawl_engine.scrape_page.return_value = sample_scrape_result
+        scrape_service.crawl_engine.scrape_single.return_value = sample_scrape_result
         
         result = await scrape_service._handle_scrape_job(job_data)
         
@@ -359,7 +373,7 @@ class TestScrapeService:
             "output_format": "json"
         }
         
-        scrape_service.crawl_engine.scrape_page.return_value = sample_scrape_result
+        scrape_service.crawl_engine.scrape_single.return_value = sample_scrape_result
         
         result = await scrape_service._handle_batch_scrape_job(job_data)
         
@@ -379,7 +393,7 @@ class TestScrapeServiceIntegration:
         
         # Mock storage
         scrape_service.storage_manager.store_crawl_result = AsyncMock()
-        scrape_service.crawl_engine.scrape_page.return_value = sample_scrape_result
+        scrape_service.crawl_engine.scrape_single.return_value = sample_scrape_result
         
         # Scrape with storage
         result = await scrape_service.scrape_single(
@@ -398,7 +412,7 @@ class TestScrapeServiceIntegration:
         scrape_service.storage_manager.store_crawl_result.assert_called_once()
         
         # Verify crawl engine was called with correct parameters
-        call_args = scrape_service.crawl_engine.scrape_page.call_args
+        call_args = scrape_service.crawl_engine.scrape_single.call_args
         assert call_args[1]["url"] == url
         assert call_args[1]["options"]["timeout"] == 15
         assert call_args[1]["extraction_strategy"]["type"] == "auto"
@@ -417,7 +431,7 @@ class TestScrapeServiceIntegration:
                 raise NetworkError("Temporary failure", status_code=503)
             return sample_scrape_result
         
-        scrape_service.crawl_engine.scrape_page.side_effect = mock_scrape
+        scrape_service.crawl_engine.scrape_single.side_effect = mock_scrape
         
         with patch('crawler.services.scrape.asyncio.sleep'):  # Speed up test
             result = await scrape_service.scrape_single(

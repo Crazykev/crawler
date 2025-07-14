@@ -7,20 +7,13 @@ from pathlib import Path
 from typing import Dict, Any
 from unittest.mock import Mock, AsyncMock, patch
 
-from crawler.foundation.config import ConfigManager
-from crawler.foundation.errors import ErrorHandler
-from crawler.foundation.metrics import MetricsCollector
-from crawler.core import StorageManager, JobManager
-from crawler.services import ScrapeService, CrawlService, SessionService
-from crawler.database.connection import DatabaseManager
+from src.crawler.foundation.config import ConfigManager
+from src.crawler.foundation.errors import ErrorHandler
+from src.crawler.foundation.metrics import MetricsCollector
+from src.crawler.core import StorageManager, JobManager
+from src.crawler.services import ScrapeService, CrawlService, SessionService
+from src.crawler.database.connection import DatabaseManager
 
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an event loop for the test session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture
@@ -28,6 +21,32 @@ def temp_dir():
     """Create a temporary directory for test files."""
     with tempfile.TemporaryDirectory() as temp_dir:
         yield Path(temp_dir)
+
+
+@pytest.fixture
+def cli_runner():
+    """Create a Click CLI runner for testing."""
+    from click.testing import CliRunner
+    return CliRunner()
+
+
+@pytest.fixture
+def temp_config_file(temp_dir):
+    """Create a temporary config file for testing."""
+    config_file = temp_dir / "test_config.yaml"
+    config_content = """
+version: "1.0"
+scrape:
+  timeout: 30
+  headless: true
+crawl:
+  max_depth: 3
+  max_pages: 100
+storage:
+  database_path: "test.db"
+"""
+    config_file.write_text(config_content)
+    return config_file
 
 
 @pytest.fixture
@@ -103,7 +122,7 @@ async def database_manager(config_manager):
     yield db_manager
     
     # Cleanup
-    await db_manager.shutdown()
+    await db_manager.close()
 
 
 @pytest.fixture
@@ -117,7 +136,7 @@ async def storage_manager(database_manager, config_manager):
     
     yield storage_manager
     
-    await storage_manager.shutdown()
+    await storage_manager.cleanup()
 
 
 @pytest.fixture
@@ -131,7 +150,7 @@ async def job_manager(storage_manager, config_manager):
     
     yield job_manager
     
-    await job_manager.shutdown()
+    await job_manager.stop()
 
 
 @pytest.fixture
@@ -141,6 +160,8 @@ def mock_crawl_engine():
     engine.initialize = AsyncMock()
     engine.shutdown = AsyncMock()
     engine.scrape_page = AsyncMock()
+    engine.scrape_single = AsyncMock()
+    engine.scrape_batch = AsyncMock()
     engine.get_page_links = AsyncMock()
     engine.classify_links = AsyncMock()
     
@@ -148,16 +169,38 @@ def mock_crawl_engine():
 
 
 @pytest.fixture
-async def scrape_service(config_manager, storage_manager, mock_crawl_engine):
-    """Create a test scrape service."""
+def scrape_service_factory(config_manager, mock_crawl_engine):
+    """Create a factory for scrape service instances."""
+    def _create_service(storage_manager=None):
+        service = ScrapeService()
+        service.config_manager = config_manager
+        service.storage_manager = storage_manager
+        service.crawl_engine = mock_crawl_engine
+        return service
+    return _create_service
+
+
+@pytest.fixture
+def mock_storage_manager():
+    """Create a mock storage manager for testing."""
+    storage = Mock()
+    storage.initialize = AsyncMock()
+    storage.shutdown = AsyncMock()
+    storage.store_crawl_result = AsyncMock()
+    storage.store_scrape_result = AsyncMock()
+    storage.get_cached_result = AsyncMock(return_value=None)  # No cache by default
+    storage.store_cached_result = AsyncMock()
+    return storage
+
+
+@pytest.fixture
+def scrape_service(config_manager, mock_crawl_engine, mock_storage_manager):
+    """Create a ready-to-use scrape service instance for testing."""
     service = ScrapeService()
     service.config_manager = config_manager
-    service.storage_manager = storage_manager
+    service.storage_manager = mock_storage_manager
     service.crawl_engine = mock_crawl_engine
-    
-    await service.initialize()
-    
-    yield service
+    return service
 
 
 @pytest.fixture
@@ -192,7 +235,11 @@ def sample_scrape_result():
         "success": True,
         "url": "https://example.com",
         "title": "Example Page",
-        "content": "This is example content.",
+        "content": {
+            "markdown": "This is example content.",
+            "html": "<p>This is example content.</p>",
+            "text": "This is example content."
+        },
         "links": [
             {"url": "https://example.com/page1", "text": "Page 1"},
             {"url": "https://example.com/page2", "text": "Page 2"},
@@ -267,25 +314,79 @@ def mock_async_response():
 
 @pytest.fixture
 def mock_crawl4ai():
-    """Create a mock crawl4ai AsyncWebCrawler instance."""
+    """Create a mock crawl engine for tests."""
+    # Mock the crawl4ai library instead of the engine methods
     with patch('src.crawler.core.engine.AsyncWebCrawler') as mock_crawler_class:
-        mock_crawler = Mock()
-        mock_crawler.arun = AsyncMock()
-        mock_crawler.close = AsyncMock()
+        # Store the current user_agent from the crawler constructor
+        current_user_agent = "Crawler/1.0"  # Default
         
-        # Ensure the async context manager returns the same mock instance
-        async def mock_aenter(self):
+        def mock_constructor(**kwargs):
+            nonlocal current_user_agent
+            # Capture user_agent from the constructor arguments
+            current_user_agent = kwargs.get("user_agent", "Crawler/1.0")
+            
+            mock_crawler = AsyncMock()
+            
+            def create_mock_result(url, arun_kwargs=None):
+                if arun_kwargs is None:
+                    arun_kwargs = {}
+                
+                mock_result = Mock()
+                mock_result.links = []
+                mock_result.media = []
+                
+                # Configure mock result based on URL and options
+                if "nonexistent-domain" in url or "invalid" in url:
+                    mock_result.success = False
+                    mock_result.status_code = None
+                    mock_result.error_message = "Domain not found"
+                    mock_result.markdown = ""
+                    mock_result.html = ""
+                    mock_result.cleaned_html = ""
+                    mock_result.metadata = {}
+                    mock_result.extracted_content = None
+                elif "delay" in url and arun_kwargs.get("page_timeout", 30000) < 5000:
+                    mock_result.success = False
+                    mock_result.status_code = None
+                    mock_result.error_message = "Request timeout"
+                    mock_result.markdown = ""
+                    mock_result.html = ""
+                    mock_result.cleaned_html = ""
+                    mock_result.metadata = {}
+                    mock_result.extracted_content = None
+                elif "user-agent" in url:
+                    # Use the user_agent from the constructor
+                    user_agent = current_user_agent
+                    mock_result.success = True
+                    mock_result.status_code = 200
+                    mock_result.markdown = f"# User Agent Test\n\nYour user agent is: {user_agent}"
+                    mock_result.html = f"<html><head><title>User Agent Test</title></head><body><h1>User Agent Test</h1><p>Your user agent is: {user_agent}</p></body></html>"
+                    mock_result.cleaned_html = f"User Agent Test\n\nYour user agent is: {user_agent}"
+                    mock_result.metadata = {"title": "User Agent Test"}
+                    mock_result.extracted_content = None
+                else:
+                    # Default successful result
+                    mock_result.success = True
+                    mock_result.status_code = 200
+                    mock_result.markdown = "# Example Domain\n\nThis domain is for examples."
+                    mock_result.html = "<html><head><title>Example</title></head><body><h1>Example Domain</h1></body></html>"
+                    mock_result.cleaned_html = "Example Domain\n\nThis domain is for examples."
+                    mock_result.metadata = {"title": "Example Domain"}
+                    mock_result.extracted_content = None
+                
+                return mock_result
+            
+            def mock_arun(**arun_kwargs):
+                # Extract URL from kwargs
+                url = arun_kwargs.get('url', '')
+                return create_mock_result(url, arun_kwargs)
+            
+            mock_crawler.arun.side_effect = mock_arun
             return mock_crawler
         
-        async def mock_aexit(self, exc_type, exc_val, exc_tb):
-            return None
+        mock_crawler_class.side_effect = mock_constructor
         
-        mock_crawler.__aenter__ = mock_aenter
-        mock_crawler.__aexit__ = mock_aexit
-        
-        mock_crawler_class.return_value = mock_crawler
-        
-        yield mock_crawler
+        yield mock_crawler_class
 
 
 @pytest.fixture(autouse=True)
@@ -300,6 +401,9 @@ def reset_singletons():
     storage._storage_manager = None
     jobs._job_manager = None
     engine._crawl_engine = None
+    
+    # Reset config manager singleton to avoid cross-test pollution
+    config._config_manager = None
     scrape._scrape_service = None
     crawl._crawl_service = None
     session._session_service = None
@@ -311,6 +415,29 @@ def reset_singletons():
 def async_mock():
     """Create an AsyncMock for testing."""
     return AsyncMock()
+
+
+@pytest.fixture
+def mock_asyncwebcrawler():
+    """Create a mock AsyncWebCrawler for core engine tests."""
+    with patch('src.crawler.core.engine.AsyncWebCrawler') as mock_crawler_class:
+        # Create a mock instance that will be returned by the constructor
+        mock_crawler = AsyncMock()
+        mock_crawler_class.return_value = mock_crawler
+        
+        # Mock the arun method to return a proper result
+        mock_result = Mock()
+        mock_result.success = True
+        mock_result.status_code = 200
+        mock_result.markdown = "# Test Page\n\nContent"
+        mock_result.html = "<html><head><title>Test</title></head><body><h1>Test Page</h1><p>Content</p></body></html>"
+        mock_result.cleaned_html = "Test Page\n\nContent"
+        mock_result.metadata = {"title": "Test Page"}
+        mock_result.links = []
+        mock_result.media = []
+        mock_crawler.arun = AsyncMock(return_value=mock_result)
+        
+        yield mock_crawler
 
 
 # Test markers

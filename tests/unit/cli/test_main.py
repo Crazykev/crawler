@@ -71,7 +71,7 @@ class TestCLIFramework:
             # Allow either success or command not found (since status might not be fully implemented)
             assert result.exit_code in [0, 2]
             # Config manager should be configured with the provided path
-            assert mock_config_manager.config_path == str(temp_config_file)
+            assert str(mock_config_manager.config_path) == str(temp_config_file)
             mock_config_manager.reload_config.assert_called_once()
     
     def test_cli_global_options_no_color(self, cli_runner):

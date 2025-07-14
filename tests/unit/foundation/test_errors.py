@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, patch
 from datetime import datetime
 
-from crawler.foundation.errors import (
+from src.crawler.foundation.errors import (
     CrawlerError, NetworkError, ValidationError, ExtractionError,
     ResourceError, RateLimitError, ErrorHandler, ErrorContext, ErrorInfo,
     ErrorCategory, ErrorSeverity, handle_error
@@ -125,7 +125,7 @@ class TestErrorHandler:
         error = NetworkError("Connection failed", status_code=500)
         context = ErrorContext(operation="test")
         
-        with patch('crawler.foundation.errors.get_logger') as mock_logger:
+        with patch('src.crawler.foundation.errors.get_logger') as mock_logger:
             mock_log = Mock()
             mock_logger.return_value = mock_log
             
@@ -148,7 +148,7 @@ class TestErrorHandler:
         error = ValueError("Invalid value")
         context = ErrorContext(operation="validation")
         
-        with patch('crawler.foundation.errors.get_logger') as mock_logger:
+        with patch('src.crawler.foundation.errors.get_logger') as mock_logger:
             mock_log = Mock()
             mock_logger.return_value = mock_log
             
@@ -280,7 +280,7 @@ class TestGlobalErrorHandling:
         error = NetworkError("Test error")
         context = ErrorContext(operation="test")
         
-        with patch('crawler.foundation.errors.get_error_handler') as mock_get_handler:
+        with patch('src.crawler.foundation.errors.get_error_handler') as mock_get_handler:
             mock_handler = Mock()
             mock_get_handler.return_value = mock_handler
             
@@ -292,7 +292,7 @@ class TestGlobalErrorHandling:
         """Test handle_error without explicit context."""
         error = NetworkError("Test error")
         
-        with patch('crawler.foundation.errors.get_error_handler') as mock_get_handler:
+        with patch('src.crawler.foundation.errors.get_error_handler') as mock_get_handler:
             mock_handler = Mock()
             mock_get_handler.return_value = mock_handler
             
@@ -305,7 +305,7 @@ class TestGlobalErrorHandling:
     
     def test_handle_error_with_string(self):
         """Test handle_error with string error."""
-        with patch('crawler.foundation.errors.get_error_handler') as mock_get_handler:
+        with patch('src.crawler.foundation.errors.get_error_handler') as mock_get_handler:
             mock_handler = Mock()
             mock_get_handler.return_value = mock_handler
             

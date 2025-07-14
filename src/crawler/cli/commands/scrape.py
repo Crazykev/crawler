@@ -137,8 +137,8 @@ def scrape(ctx, url, output, output_format, extract_strategy, css_selector,
         # Run as async job
         crawler scrape https://example.com --async-job
     """
-    verbose = ctx.obj.get('verbose', 0)
-    quiet = ctx.obj.get('quiet', False)
+    verbose = ctx.obj.get('verbose', 0) if ctx.obj else 0
+    quiet = ctx.obj.get('quiet', False) if ctx.obj else False
     
     try:
         # Prepare options
@@ -357,7 +357,7 @@ def _handle_output(
     if not result.get("success"):
         error_msg = result.get("error", "Unknown error")
         console.print(f"[red]Scraping failed:[/red] {error_msg}")
-        return
+        raise click.ClickException(f"Scraping failed: {error_msg}")
     
     # Format output based on type
     if output_format == "json":

@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime
 from pydantic import ValidationError, HttpUrl
 
-from crawler.models.scrape import (
+from src.crawler.models.scrape import (
     ScrapeOptions, ScrapeRequest, ScrapeResult,
     ExtractionStrategy, OutputFormat, CSSExtractionConfig,
     LLMExtractionConfig, ExtractionStrategyConfig,
@@ -157,7 +157,7 @@ class TestScrapeRequest:
         """Test valid scrape request."""
         request = ScrapeRequest(url="https://example.com")
         
-        assert str(request.url) == "https://example.com"
+        assert str(request.url) == "https://example.com/"
         assert request.options is None
         assert request.extraction_strategy is None
         assert request.output_format == OutputFormat.MARKDOWN
@@ -215,7 +215,7 @@ class TestScrapeResult:
         )
         
         assert result.success is True
-        assert str(result.url) == "https://example.com"
+        assert str(result.url) == "https://example.com/"
         assert result.title == "Example Page"
         assert result.content == "Page content"
         assert len(result.links) == 2
@@ -231,7 +231,7 @@ class TestScrapeResult:
         )
         
         assert result.success is False
-        assert str(result.url) == "https://example.com"
+        assert str(result.url) == "https://example.com/"
         assert result.error == "Connection failed"
         assert result.title is None
         assert result.content is None
@@ -265,7 +265,7 @@ class TestLinkInfo:
         """Test basic link information."""
         link = LinkInfo(url="https://example.com", text="Example")
         
-        assert str(link.url) == "https://example.com"
+        assert str(link.url) == "https://example.com/"
         assert link.text == "Example"
         assert link.title is None
         assert link.rel is None
@@ -280,7 +280,7 @@ class TestLinkInfo:
             type="text/html"
         )
         
-        assert str(link.url) == "https://example.com"
+        assert str(link.url) == "https://example.com/"
         assert link.text == "Example Link"
         assert link.title == "Example Website"
         assert link.rel == "nofollow"
@@ -336,7 +336,7 @@ class TestScrapingMetadata:
             output_format=OutputFormat.MARKDOWN
         )
         
-        assert str(metadata.url) == "https://example.com"
+        assert str(metadata.url) == "https://example.com/"
         assert metadata.status_code == 200
         assert metadata.load_time == 1.5
         assert metadata.size == 1024

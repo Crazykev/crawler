@@ -29,6 +29,14 @@ class JobType(str, Enum):
     SESSION_OPERATION = "session_operation"
 
 
+class JobPriority(int, Enum):
+    """Enumeration of job priorities."""
+    LOW = 0
+    NORMAL = 1
+    HIGH = 2
+    URGENT = 3
+
+
 class JobQueue(Base):
     """Model for storing job queue entries."""
     

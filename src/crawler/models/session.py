@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator, HttpUrl
+from pydantic import BaseModel, Field, field_validator, HttpUrl, ConfigDict
 
 
 class BrowserType(str, Enum):
@@ -31,7 +31,8 @@ class ProxyConfig(BaseModel):
     password: Optional[str] = None
     bypass_list: List[str] = Field(default_factory=list, description="Domains to bypass proxy")
     
-    @validator('url')
+    @field_validator('url')
+    @classmethod
     def validate_proxy_url(cls, v):
         if not any(v.startswith(proto) for proto in ['http://', 'https://', 'socks5://']):
             raise ValueError('Proxy URL must start with http://, https://, or socks5://')
@@ -103,8 +104,7 @@ class SessionConfiguration(BaseModel):
     user_data_dir: Optional[str] = None
     persist_context: bool = False
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class SessionState(BaseModel):
@@ -333,5 +333,4 @@ class SessionMetrics(BaseModel):
     dom_nodes: Optional[int] = None
     javascript_heap_size: Optional[int] = None
     
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

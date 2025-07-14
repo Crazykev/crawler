@@ -275,6 +275,48 @@ class ResourceError(CrawlerError):
             self.details["resource_type"] = resource_type
 
 
+class JobError(CrawlerError):
+    """Error raised when job operations fail."""
+    
+    def __init__(self, message: str, job_id: Optional[str] = None, job_type: Optional[str] = None, **kwargs):
+        super().__init__(
+            message,
+            category=ErrorCategory.SYSTEM,
+            severity=ErrorSeverity.MEDIUM,
+            error_code="JOB_ERROR",
+            retryable=False,
+            **kwargs
+        )
+        self.job_id = job_id
+        self.job_type = job_type
+        if job_id or job_type:
+            if self.details is None:
+                self.details = {}
+            if job_id:
+                self.details["job_id"] = job_id
+            if job_type:
+                self.details["job_type"] = job_type
+
+
+class StorageError(CrawlerError):
+    """Error raised when storage operations fail."""
+    
+    def __init__(self, message: str, storage_type: Optional[str] = None, **kwargs):
+        super().__init__(
+            message,
+            category=ErrorCategory.SYSTEM,
+            severity=ErrorSeverity.MEDIUM,
+            error_code="STORAGE_ERROR",
+            retryable=True,
+            **kwargs
+        )
+        self.storage_type = storage_type
+        if storage_type:
+            if self.details is None:
+                self.details = {}
+            self.details["storage_type"] = storage_type
+
+
 class ErrorHandler:
     """Centralized error handling and recovery."""
     

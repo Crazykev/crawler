@@ -23,9 +23,20 @@ console = Console()
 logger = get_logger(__name__)
 
 
-@click.group()
+@click.group(invoke_without_command=True)
+@click.option(
+    "--health",
+    is_flag=True,
+    help="Show health check status"
+)
+@click.option(
+    "--format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    help="Output format"
+)
 @click.pass_context
-def status(ctx):
+def status(ctx, health, format):
     """Show system status and monitoring information.
     
     Displays information about job queues, active sessions, system metrics,
@@ -35,6 +46,9 @@ def status(ctx):
     
         # Show overall system status
         crawler status
+        
+        # Show health check
+        crawler status --health
         
         # Show job queue status
         crawler status jobs
@@ -48,7 +62,31 @@ def status(ctx):
         # Monitor status in real-time
         crawler status monitor --interval 5
     """
-    pass
+    if ctx.invoked_subcommand is None:
+        # Called without subcommand - show overview or health check
+        quiet = ctx.obj.get('quiet', False)
+        
+        try:
+            if health:
+                # Show health check
+                health_data = asyncio.run(_get_health_check())
+                
+                if format == "json":
+                    console.print(json.dumps(health_data, indent=2, default=str))
+                else:
+                    _display_health_check(health_data, quiet)
+            else:
+                # Show overview
+                status_data = asyncio.run(_get_system_overview())
+                
+                if format == "json":
+                    console.print(json.dumps(status_data, indent=2, default=str))
+                else:
+                    _display_system_overview(status_data, quiet)
+                    
+        except Exception as e:
+            handle_error(e)
+            raise click.ClickException(f"Failed to get system status: {str(e)}")
 
 
 @status.command(name="overview")
@@ -215,6 +253,63 @@ def job(ctx, job_id, format):
 
 # Helper functions
 
+async def _get_health_check() -> Dict[str, Any]:
+    """Get system health check status."""
+    health = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "overall_status": "healthy",
+        "checks": {}
+    }
+    
+    # Database health check
+    try:
+        storage_manager = get_storage_manager()
+        await storage_manager.initialize()
+        storage_stats = await storage_manager.get_storage_stats()
+        health["checks"]["database"] = {
+            "status": "healthy",
+            "message": "Database connection successful",
+            "details": storage_stats
+        }
+    except Exception as e:
+        health["checks"]["database"] = {
+            "status": "unhealthy",
+            "message": f"Database error: {str(e)}"
+        }
+        health["overall_status"] = "unhealthy"
+    
+    # Job manager health check
+    try:
+        job_manager = get_job_manager()
+        await job_manager.initialize()
+        health["checks"]["job_manager"] = {
+            "status": "healthy",
+            "message": "Job manager operational"
+        }
+    except Exception as e:
+        health["checks"]["job_manager"] = {
+            "status": "unhealthy",
+            "message": f"Job manager error: {str(e)}"
+        }
+        health["overall_status"] = "unhealthy"
+    
+    # Configuration health check
+    try:
+        config_manager = get_config_manager()
+        config_data = config_manager.get_current_config()
+        health["checks"]["configuration"] = {
+            "status": "healthy",
+            "message": "Configuration loaded successfully"
+        }
+    except Exception as e:
+        health["checks"]["configuration"] = {
+            "status": "degraded",
+            "message": f"Configuration issue: {str(e)}"
+        }
+    
+    return health
+
+
 async def _get_system_overview() -> Dict[str, Any]:
     """Get overall system status."""
     overview = {
@@ -357,6 +452,52 @@ async def _monitor_system_status(interval: int, count: int, quiet: bool) -> None
         # Wait for next update
         if count is None or updates < count:
             await asyncio.sleep(interval)
+
+
+def _display_health_check(data: Dict[str, Any], quiet: bool) -> None:
+    """Display health check status."""
+    overall_status = data.get("overall_status", "unknown")
+    checks = data.get("checks", {})
+    
+    if quiet:
+        # Minimal output for quiet mode
+        console.print(f"Health: {overall_status}")
+        for check_name, check_data in checks.items():
+            status = check_data.get("status", "unknown")
+            console.print(f"{check_name}: {status}")
+        return
+    
+    # Rich display for normal mode
+    status_color = "green" if overall_status == "healthy" else "red" if overall_status == "unhealthy" else "yellow"
+    console.print(Panel.fit(f"[bold {status_color}]System Health: {overall_status.upper()}[/bold {status_color}]", border_style=status_color))
+    
+    # Health checks table
+    health_table = Table(title="Health Check Details")
+    health_table.add_column("Component", style="cyan")
+    health_table.add_column("Status", style="green")
+    health_table.add_column("Message", style="white")
+    
+    for check_name, check_data in checks.items():
+        status = check_data.get("status", "unknown")
+        message = check_data.get("message", "No message")
+        
+        # Color code status
+        if status == "healthy":
+            status_colored = f"[green]{status}[/green]"
+        elif status == "unhealthy":
+            status_colored = f"[red]{status}[/red]"
+        elif status == "degraded":
+            status_colored = f"[yellow]{status}[/yellow]"
+        else:
+            status_colored = f"[dim]{status}[/dim]"
+        
+        health_table.add_row(
+            check_name.replace("_", " ").title(),
+            status_colored,
+            message
+        )
+    
+    console.print(health_table)
 
 
 def _display_system_overview(data: Dict[str, Any], quiet: bool) -> None:

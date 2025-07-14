@@ -220,7 +220,7 @@ class SessionService:
                 
                 expires_at = now + timedelta(seconds=timeout_seconds)
                 await self.storage_manager.store_session(
-                    session_id=session_id,
+                    session_id_or_data=session_id,
                     config=session_config.to_dict(),
                     state_data=session.state_data,
                     expires_at=expires_at
@@ -265,7 +265,7 @@ class SessionService:
                     
                     # Update in storage
                     await self.storage_manager.store_session(
-                        session_id=session_id,
+                        session_id_or_data=session_id,
                         config=session.config.to_dict(),
                         state_data=session.state_data
                     )
@@ -384,7 +384,7 @@ class SessionService:
                 
                 # Save to storage
                 await self.storage_manager.store_session(
-                    session_id=session_id,
+                    session_id_or_data=session_id,
                     config=session.config.to_dict(),
                     state_data=session.state_data
                 )

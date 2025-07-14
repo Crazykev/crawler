@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator, HttpUrl
+from pydantic import BaseModel, Field, field_validator, model_validator, HttpUrl, ConfigDict
 from pydantic.types import StrictStr
 
 
@@ -51,8 +51,7 @@ class ScrapeOptions(BaseModel):
     # Session
     session_id: Optional[str] = None
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class CSSExtractionConfig(BaseModel):
@@ -80,7 +79,8 @@ class LLMExtractionConfig(BaseModel):
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
     
-    @validator('model')
+    @field_validator('model')
+    @classmethod
     def validate_model_format(cls, v):
         if '/' not in v:
             raise ValueError('Model must be in format "provider/model"')
@@ -94,11 +94,12 @@ class ExtractionStrategyConfig(BaseModel):
     css: Optional[CSSExtractionConfig] = None
     llm: Optional[LLMExtractionConfig] = None
     
-    @validator('css')
-    def validate_css_config(cls, v, values):
-        if values.get('type') == ExtractionStrategy.CSS and v is None:
+    @model_validator(mode='after')
+    def validate_strategy_config(self):
+        # Check if this is a CSS strategy but no CSS config provided
+        if self.type == ExtractionStrategy.CSS and self.css is None:
             raise ValueError('CSS configuration required when using CSS strategy')
-        return v
+        return self
 
 
 class LinkInfo(BaseModel):

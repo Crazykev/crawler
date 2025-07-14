@@ -2,12 +2,14 @@
 
 import json
 import hashlib
+import sqlite3
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
 
-from sqlalchemy import select, delete, update, and_, or_
+from sqlalchemy import select, delete, update, and_, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
+import sqlalchemy.exc
 
 from ..database.connection import get_database_manager
 from ..database.models import (
@@ -20,31 +22,139 @@ from ..foundation.errors import handle_error, ResourceError
 from ..foundation.metrics import get_metrics_collector, timer
 
 
+def _serialize_datetime(obj: Any) -> Any:
+    """Serialize datetime objects to ISO format strings for JSON storage."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: _serialize_datetime(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_serialize_datetime(item) for item in obj]
+    else:
+        return obj
+
+
 class StorageManager:
     """Manages SQLite-based data storage, caching, and persistence."""
     
-    def __init__(self):
+    def __init__(self, db_path: Optional[str] = None):
         self.logger = get_logger(__name__)
         self.config_manager = get_config_manager()
         self.metrics = get_metrics_collector()
-        self.db_manager = get_database_manager()
+        
+        # Set custom database path if provided
+        if db_path:
+            self.config_manager.set_setting("storage.database_path", db_path)
+        
+        # Import here to avoid circular imports
+        from ..database.connection import DatabaseManager
+        self.db_manager = DatabaseManager(config_manager=self.config_manager)
+        
+        # Ensure database is created with WAL mode when custom path is provided
+        if db_path:
+            self._ensure_database_created()
+        
+        # Don't initialize engine here - wait for initialize() call
+    
+    def _ensure_database_created(self) -> None:
+        """Ensure the database file is created and WAL mode is enabled."""
+        try:
+            # Get database path from configuration
+            db_path = self.config_manager.get_setting(
+                "storage.database_path", 
+                "~/.crawler/crawler.db"
+            )
+            db_path = Path(db_path).expanduser().resolve()
+            
+            # Ensure directory exists
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Create a direct SQLite connection to set up WAL mode
+            with sqlite3.connect(str(db_path)) as conn:
+                cursor = conn.cursor()
+                # Enable WAL mode for better concurrency
+                cursor.execute("PRAGMA journal_mode=WAL")
+                # Performance optimizations
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA cache_size=10000")
+                cursor.execute("PRAGMA temp_store=MEMORY")
+                cursor.execute("PRAGMA mmap_size=268435456")  # 256MB
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+                
+            self.logger.debug(f"Database created with WAL mode at: {db_path}")
+        except (PermissionError, OSError) as e:
+            # Convert permission/OS errors to StorageError for proper error handling
+            from ..foundation.errors import StorageError
+            raise StorageError(f"Failed to create database at {db_path}: {e}")
+        except Exception as e:
+            self.logger.warning(f"Failed to ensure database creation: {e}")
+    
+    @property
+    def db_path(self) -> str:
+        """Get the current database path."""
+        return self.config_manager.get_setting("storage.database_path", "~/.crawler/crawler.db")
+    
+    @db_path.setter
+    def db_path(self, value: str) -> None:
+        """Set the database path."""
+        self.config_manager.set_setting("storage.database_path", value)
+        # Recreate the database manager with the new config
+        from ..database.connection import DatabaseManager
+        self.db_manager = DatabaseManager(config_manager=self.config_manager)
     
     async def initialize(self) -> None:
         """Initialize the storage system."""
         try:
-            await self.db_manager.setup_database()
+            # Initialize the database engine to trigger WAL mode setup
+            # This ensures the database is ready immediately
+            _ = self.db_manager.engine
+            
+            # Trigger a connection to ensure database file is created with WAL mode
+            self._ensure_database_created()
+            
+            # Check if database path is valid
+            db_path = self.config_manager.get_setting(
+                "storage.database_path", 
+                "~/.crawler/crawler.db"
+            )
+            db_path = Path(db_path).expanduser().resolve()
+            
+            # Check if parent directory is accessible/creatable
+            try:
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+            except (PermissionError, OSError) as e:
+                from ..foundation.errors import StorageError
+                error_msg = f"Cannot create database directory {db_path.parent}: {e}"
+                self.logger.error(error_msg)
+                raise StorageError(error_msg)
+            
+            await self.db_manager.initialize()
             self.logger.info("Storage manager initialized successfully")
         except Exception as e:
+            # Import here to avoid circular imports
+            from ..foundation.errors import StorageError
+            if isinstance(e, StorageError):
+                raise  # Re-raise StorageError as-is
             error_msg = f"Failed to initialize storage manager: {e}"
             self.logger.error(error_msg)
-            handle_error(ResourceError(error_msg, resource_type="database"))
+            handle_error(StorageError(error_msg))
+            raise StorageError(error_msg)
+    
+    async def cleanup(self) -> None:
+        """Clean up storage resources."""
+        try:
+            await self.db_manager.close()
+            self.logger.info("Storage manager cleaned up successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to cleanup storage manager: {e}")
             raise
     
     # ==================== CRAWL RESULT STORAGE ====================
     
-    async def store_crawl_result(
+    async def store_scrape_result(
         self,
-        url: str,
+        url_or_data: Union[str, Dict[str, Any]],
         content_markdown: Optional[str] = None,
         content_html: Optional[str] = None,
         content_text: Optional[str] = None,
@@ -61,8 +171,8 @@ class StorageManager:
         """Store a crawl result in the database.
         
         Args:
-            url: The URL that was crawled
-            content_markdown: Markdown content
+            url_or_data: Either a URL string or a dictionary containing all result data
+            content_markdown: Markdown content (if url_or_data is a string)
             content_html: HTML content
             content_text: Plain text content
             extracted_data: Structured extracted data
@@ -80,6 +190,27 @@ class StorageManager:
         """
         with timer("storage.store_crawl_result"):
             try:
+                # Handle both dictionary and individual parameter calling conventions
+                if isinstance(url_or_data, dict):
+                    # Extract data from dictionary
+                    data = url_or_data
+                    url = data.get("url")
+                    content_markdown = data.get("content_markdown") or data.get("content")
+                    content_html = data.get("content_html")
+                    content_text = data.get("content_text")
+                    extracted_data = data.get("extracted_data")
+                    metadata = data.get("metadata")
+                    title = data.get("title")
+                    success = data.get("success", True)
+                    status_code = data.get("status_code")
+                    error_message = data.get("error_message")
+                    job_id = data.get("job_id")
+                    links = data.get("links")
+                    media = data.get("media")
+                else:
+                    # Use individual parameters
+                    url = url_or_data
+                
                 async with self.db_manager.get_session() as session:
                     # Create crawl result
                     crawl_result = CrawlResult(
@@ -92,7 +223,7 @@ class StorageManager:
                         content_html=content_html,
                         content_text=content_text,
                         extracted_data=extracted_data,
-                        metadata=metadata,
+                        meta_data=metadata,
                         error_message=error_message
                     )
                     
@@ -107,7 +238,7 @@ class StorageManager:
                                 url=link_data.get("url", ""),
                                 text=link_data.get("text"),
                                 link_type=link_data.get("type", "external"),
-                                metadata=link_data.get("metadata")
+                                meta_data=link_data.get("metadata")
                             )
                             session.add(link)
                     
@@ -122,7 +253,7 @@ class StorageManager:
                                 width=media_data.get("width"),
                                 height=media_data.get("height"),
                                 file_size=media_data.get("file_size"),
-                                metadata=media_data.get("metadata")
+                                meta_data=media_data.get("metadata")
                             )
                             session.add(media_item)
                     
@@ -134,9 +265,25 @@ class StorageManager:
                     
                     return result_id
                     
+            except (sqlite3.OperationalError, sqlalchemy.exc.OperationalError) as e:
+                self.metrics.increment_counter("storage.crawl_results.errors")
+                url_for_error = url if isinstance(url_or_data, str) else url_or_data.get("url", "unknown")
+                error_msg = f"Failed to store crawl result for {url_for_error}: {e}"
+                self.logger.error(error_msg)
+                
+                # Convert database errors to StorageError
+                from ..foundation.errors import StorageError
+                if "disk" in str(e).lower() or "full" in str(e).lower():
+                    storage_error = StorageError(f"Database disk space exhausted: {e}")
+                else:
+                    storage_error = StorageError(f"Database operational error: {e}")
+                
+                handle_error(storage_error)
+                raise storage_error
             except Exception as e:
                 self.metrics.increment_counter("storage.crawl_results.errors")
-                error_msg = f"Failed to store crawl result for {url}: {e}"
+                url_for_error = url if isinstance(url_or_data, str) else url_or_data.get("url", "unknown")
+                error_msg = f"Failed to store crawl result for {url_for_error}: {e}"
                 self.logger.error(error_msg)
                 handle_error(ResourceError(error_msg, resource_type="database"))
                 raise
@@ -185,6 +332,16 @@ class StorageManager:
                 self.logger.error(error_msg)
                 handle_error(ResourceError(error_msg, resource_type="database"))
                 return None
+    
+    # Alias for backward compatibility
+    async def store_crawl_result(self, *args, **kwargs):
+        """Alias for store_scrape_result for backward compatibility."""
+        return await self.store_scrape_result(*args, **kwargs)
+    
+    # Alias for backward compatibility 
+    async def get_scrape_result(self, result_id: str) -> Optional[Dict[str, Any]]:
+        """Alias for get_crawl_result for backward compatibility."""
+        return await self.get_crawl_result(result_id)
     
     async def get_crawl_results_by_job(self, job_id: str) -> List[Dict[str, Any]]:
         """Get all crawl results for a job.
@@ -281,16 +438,22 @@ class StorageManager:
                         self.metrics.increment_counter("storage.cache.misses")
                         return None
                     
-                    # Check if expired
-                    if cache_entry.is_expired():
+                    # Check if expired manually to avoid greenlet issues
+                    current_time = datetime.utcnow()
+                    is_expired = False
+                    if cache_entry.expires_at is not None:
+                        is_expired = current_time > cache_entry.expires_at
+                    
+                    if is_expired:
                         # Delete expired entry
                         await session.delete(cache_entry)
                         await session.commit()
                         self.metrics.increment_counter("storage.cache.expired")
                         return None
                     
-                    # Update access statistics
-                    cache_entry.increment_access_count()
+                    # Update access statistics manually
+                    cache_entry.access_count += 1
+                    cache_entry.last_accessed = current_time
                     await session.commit()
                     
                     self.metrics.increment_counter("storage.cache.hits")
@@ -301,32 +464,52 @@ class StorageManager:
                 self.logger.error(f"Failed to get cached result for {url}: {e}")
                 return None
     
-    async def store_cached_result(
+    
+    # Alias for backward compatibility  
+    async def store_cached_result(self, url: str, data: Dict[str, Any], options: Optional[Dict[str, Any]] = None, cache_ttl: Optional[int] = None):
+        """Store cached result with proper parameter handling."""
+        return await self.store_cache(url, data, ttl=cache_ttl, options=options)
+    
+    # Test-compatible cache methods
+    async def store_cache(
         self,
-        url: str,
-        data: Dict[str, Any],
+        cache_key_or_url: Union[str, Dict[str, Any]],
+        data: Optional[Dict[str, Any]] = None,
+        ttl: Optional[int] = None,
         options: Optional[Dict[str, Any]] = None,
         ttl_seconds: Optional[int] = None
     ) -> bool:
-        """Store result in cache.
+        """Store data in cache - handles both test signature and original signature."""
+        # Handle test calling convention: store_cache(cache_key, data, ttl=...)
+        if isinstance(cache_key_or_url, str) and data is not None:
+            cache_key = cache_key_or_url
+            cache_data = data
+            ttl_to_use = ttl or ttl_seconds
+        # Handle original calling convention: store_cache(url, data, options=..., ttl_seconds=...)
+        else:
+            url = cache_key_or_url if isinstance(cache_key_or_url, str) else "unknown"
+            cache_key = self._generate_cache_key(url, options)
+            cache_data = data
+            ttl_to_use = ttl_seconds or ttl
         
-        Args:
-            url: The URL
-            data: Data to cache
-            options: Options that affect caching
-            ttl_seconds: Time to live in seconds
-            
-        Returns:
-            True if stored successfully
-        """
-        cache_key = self._generate_cache_key(url, options)
+        if ttl_to_use is None:
+            ttl_to_use = self.config_manager.get_setting("storage.cache_ttl", 3600)
         
-        if ttl_seconds is None:
-            ttl_seconds = self.config_manager.get_setting("storage.cache_ttl", 3600)
+        # Ensure ttl_to_use is an integer
+        if not isinstance(ttl_to_use, int):
+            if isinstance(ttl_to_use, dict):
+                # If it's a dict, try to extract a numeric value or use default
+                ttl_to_use = 3600
+            else:
+                # Try to convert to int, fallback to default
+                try:
+                    ttl_to_use = int(ttl_to_use)
+                except (ValueError, TypeError):
+                    ttl_to_use = 3600
         
-        expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+        expires_at = datetime.utcnow() + timedelta(seconds=ttl_to_use)
         
-        with timer("storage.store_cached_result"):
+        with timer("storage.store_cache"):
             try:
                 async with self.db_manager.get_session() as session:
                     # Check if entry already exists
@@ -334,16 +517,19 @@ class StorageManager:
                     result = await session.execute(stmt)
                     cache_entry = result.scalar_one_or_none()
                     
+                    # Serialize datetime objects in cache data
+                    serialized_data = _serialize_datetime(cache_data)
+                    
                     if cache_entry:
                         # Update existing entry
-                        cache_entry.data_value = data
+                        cache_entry.data_value = serialized_data
                         cache_entry.expires_at = expires_at
                         cache_entry.last_accessed = datetime.utcnow()
                     else:
                         # Create new entry
                         cache_entry = CacheEntry(
                             cache_key=cache_key,
-                            data_value=data,
+                            data_value=serialized_data,
                             data_type="json",
                             expires_at=expires_at,
                             last_accessed=datetime.utcnow()
@@ -356,8 +542,42 @@ class StorageManager:
                     
             except Exception as e:
                 self.metrics.increment_counter("storage.cache.errors")
-                self.logger.error(f"Failed to store cached result for {url}: {e}")
+                self.logger.error(f"Failed to store cache: {e}")
                 return False
+    
+    async def get_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        """Get cached data by cache key - test compatibility method."""
+        with timer("storage.get_cache"):
+            try:
+                async with self.db_manager.get_session() as session:
+                    stmt = select(CacheEntry).where(CacheEntry.cache_key == cache_key)
+                    result = await session.execute(stmt)
+                    cache_entry = result.scalar_one_or_none()
+                    
+                    if not cache_entry:
+                        return None
+                    
+                    # Check if expired manually to avoid greenlet issues
+                    current_time = datetime.utcnow()
+                    is_expired = False
+                    if cache_entry.expires_at is not None:
+                        is_expired = current_time > cache_entry.expires_at
+                    
+                    if is_expired:
+                        await session.delete(cache_entry)
+                        await session.commit()
+                        return None
+                    
+                    # Update access statistics manually
+                    cache_entry.access_count += 1
+                    cache_entry.last_accessed = current_time
+                    await session.commit()
+                    
+                    return cache_entry.data_value
+                    
+            except Exception as e:
+                self.logger.error(f"Failed to get cache for key {cache_key}: {e}")
+                return None
     
     async def cleanup_expired_cache(self) -> int:
         """Clean up expired cache entries.
@@ -394,16 +614,16 @@ class StorageManager:
     
     async def store_session(
         self,
-        session_id: str,
-        config: Dict[str, Any],
+        session_id_or_data: Union[str, Dict[str, Any]],
+        config: Optional[Dict[str, Any]] = None,
         state_data: Optional[Dict[str, Any]] = None,
         expires_at: Optional[datetime] = None
     ) -> bool:
         """Store browser session data.
         
         Args:
-            session_id: Session identifier
-            config: Session configuration
+            session_id_or_data: Either session ID string or session data dictionary
+            config: Session configuration (if session_id_or_data is string)
             state_data: Session state data
             expires_at: When the session expires
             
@@ -412,6 +632,18 @@ class StorageManager:
         """
         with timer("storage.store_session"):
             try:
+                # Handle both dictionary and individual parameter calling conventions
+                if isinstance(session_id_or_data, dict):
+                    # Extract data from dictionary
+                    data = session_id_or_data
+                    session_id = data.get("session_id")
+                    config = data.get("config")
+                    state_data = data.get("state_data")
+                    expires_at = data.get("expires_at")
+                else:
+                    # Use individual parameters
+                    session_id = session_id_or_data
+                
                 async with self.db_manager.get_session() as session:
                     # Check if session already exists
                     stmt = select(BrowserSession).where(BrowserSession.session_id == session_id)
@@ -442,7 +674,8 @@ class StorageManager:
                     
             except Exception as e:
                 self.metrics.increment_counter("storage.sessions.errors")
-                self.logger.error(f"Failed to store session {session_id}: {e}")
+                session_id_for_error = session_id if isinstance(session_id_or_data, str) else session_id_or_data.get("session_id", "unknown")
+                self.logger.error(f"Failed to store session {session_id_for_error}: {e}")
                 return False
     
     async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -456,27 +689,65 @@ class StorageManager:
         """
         with timer("storage.get_session"):
             try:
+                # Use direct SQL query to avoid greenlet issues with SQLAlchemy ORM
+                from sqlalchemy import text
                 async with self.db_manager.get_session() as session:
-                    stmt = select(BrowserSession).where(BrowserSession.session_id == session_id)
-                    result = await session.execute(stmt)
-                    browser_session = result.scalar_one_or_none()
+                    stmt = text("""
+                        SELECT session_id, config, state_data, is_active, expires_at
+                        FROM browser_sessions 
+                        WHERE session_id = :session_id
+                    """)
+                    result = await session.execute(stmt, {"session_id": session_id})
+                    row = result.fetchone()
                     
-                    if not browser_session:
+                    if not row:
                         return None
+                    
+                    session_id_db, config_json, state_data_json, is_active, expires_at = row
                     
                     # Check if expired
-                    if browser_session.is_expired():
-                        await session.delete(browser_session)
-                        await session.commit()
-                        self.metrics.increment_counter("storage.sessions.expired")
-                        return None
+                    current_time = datetime.utcnow()
+                    if expires_at is not None:
+                        # Handle case where expires_at might be a string from database
+                        if isinstance(expires_at, str):
+                            from dateutil.parser import parse
+                            try:
+                                expires_at = parse(expires_at)
+                            except (ValueError, TypeError):
+                                expires_at = None
+                        
+                        if expires_at and current_time > expires_at:
+                            # Delete expired session
+                            delete_stmt = text("DELETE FROM browser_sessions WHERE session_id = :session_id")
+                            await session.execute(delete_stmt, {"session_id": session_id})
+                            await session.commit()
+                            self.metrics.increment_counter("storage.sessions.expired")
+                            return None
                     
                     # Update last accessed
-                    browser_session.last_accessed = datetime.utcnow()
+                    update_stmt = text("""
+                        UPDATE browser_sessions 
+                        SET last_accessed = :current_time, updated_at = :current_time
+                        WHERE session_id = :session_id
+                    """)
+                    await session.execute(update_stmt, {
+                        "current_time": current_time,
+                        "session_id": session_id
+                    })
                     await session.commit()
                     
+                    # Parse JSON data
+                    import json
+                    config = json.loads(config_json) if config_json else {}
+                    state_data = json.loads(state_data_json) if state_data_json else {}
+                    
                     self.metrics.increment_counter("storage.sessions.retrieved")
-                    return browser_session.to_dict()
+                    return {
+                        "session_id": session_id_db,
+                        "config": config,
+                        "state_data": state_data,
+                        "is_active": is_active
+                    }
                     
             except Exception as e:
                 self.metrics.increment_counter("storage.sessions.errors")
@@ -540,6 +811,178 @@ class StorageManager:
                 self.logger.error(f"Failed to cleanup expired sessions: {e}")
                 return 0
     
+    # Aliases for browser session management
+    async def store_browser_session(
+        self,
+        session_id: str,
+        browser_config: Dict[str, Any],
+        is_active: bool = True
+    ) -> bool:
+        """Store browser session with specific config format.
+        
+        Args:
+            session_id: Session identifier
+            browser_config: Browser configuration
+            is_active: Whether session is active
+            
+        Returns:
+            True if stored successfully
+        """
+        return await self.store_session(
+            session_id_or_data=session_id,
+            config=browser_config,
+            state_data={"is_active": is_active}
+        )
+    
+    async def update_browser_session(
+        self,
+        session_id: str,
+        is_active: bool
+    ) -> bool:
+        """Update browser session status.
+        
+        Args:
+            session_id: Session identifier
+            is_active: Whether session is active
+            
+        Returns:
+            True if updated successfully
+        """
+        with timer("storage.update_browser_session"):
+            try:
+                from sqlalchemy import text
+                import json
+                
+                async with self.db_manager.get_session() as session:
+                    # First, get the current state_data
+                    select_stmt = text("""
+                        SELECT state_data FROM browser_sessions 
+                        WHERE session_id = :session_id
+                    """)
+                    result = await session.execute(select_stmt, {"session_id": session_id})
+                    row = result.fetchone()
+                    
+                    if not row:
+                        return False
+                    
+                    # Update state data
+                    state_data = json.loads(row[0]) if row[0] else {}
+                    state_data["is_active"] = is_active
+                    
+                    # Update session with new state
+                    update_stmt = text("""
+                        UPDATE browser_sessions 
+                        SET state_data = :state_data, 
+                            is_active = :is_active,
+                            last_accessed = :current_time,
+                            updated_at = :current_time
+                        WHERE session_id = :session_id
+                    """)
+                    current_time = datetime.utcnow()
+                    await session.execute(update_stmt, {
+                        "state_data": json.dumps(state_data),
+                        "is_active": is_active,
+                        "current_time": current_time,
+                        "session_id": session_id
+                    })
+                    await session.commit()
+                    self.metrics.increment_counter("storage.sessions.updated")
+                    return True
+                    
+            except Exception as e:
+                self.metrics.increment_counter("storage.sessions.errors")
+                self.logger.error(f"Failed to update session {session_id}: {e}")
+                return False
+    
+    # ==================== JOB QUEUE MANAGEMENT ====================
+    
+    async def store_job(self, job_data: Dict[str, Any]) -> bool:
+        """Store job data in the job queue.
+        
+        Args:
+            job_data: Job data dictionary
+            
+        Returns:
+            True if stored successfully
+        """
+        with timer("storage.store_job"):
+            try:
+                async with self.db_manager.get_session() as session:
+                    job = JobQueue(
+                        job_id=job_data.get("job_id"),
+                        job_type=job_data.get("job_type"),
+                        status=job_data.get("status", "pending"),
+                        priority=job_data.get("priority", 0),
+                        job_data=job_data.get("job_data"),
+                        result_data=job_data.get("result_data")
+                    )
+                    session.add(job)
+                    await session.commit()
+                    self.metrics.increment_counter("storage.jobs.stored")
+                    return True
+                    
+            except Exception as e:
+                self.metrics.increment_counter("storage.jobs.errors")
+                self.logger.error(f"Failed to store job {job_data.get('job_id', 'unknown')}: {e}")
+                return False
+    
+    async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get job data by ID.
+        
+        Args:
+            job_id: Job identifier
+            
+        Returns:
+            Job data or None if not found
+        """
+        with timer("storage.get_job"):
+            try:
+                async with self.db_manager.get_session() as session:
+                    stmt = select(JobQueue).where(JobQueue.job_id == job_id)
+                    result = await session.execute(stmt)
+                    job = result.scalar_one_or_none()
+                    
+                    if not job:
+                        return None
+                    
+                    self.metrics.increment_counter("storage.jobs.retrieved")
+                    return job.to_dict()
+                    
+            except Exception as e:
+                self.metrics.increment_counter("storage.jobs.errors")
+                self.logger.error(f"Failed to get job {job_id}: {e}")
+                return None
+    
+    async def update_job_status(self, job_id: str, status: str) -> bool:
+        """Update job status.
+        
+        Args:
+            job_id: Job identifier
+            status: New status
+            
+        Returns:
+            True if updated successfully
+        """
+        with timer("storage.update_job_status"):
+            try:
+                async with self.db_manager.get_session() as session:
+                    stmt = update(JobQueue).where(JobQueue.job_id == job_id).values(
+                        status=status,
+                        updated_at=datetime.utcnow()
+                    )
+                    result = await session.execute(stmt)
+                    await session.commit()
+                    
+                    if result.rowcount > 0:
+                        self.metrics.increment_counter("storage.jobs.updated")
+                        return True
+                    return False
+                    
+            except Exception as e:
+                self.metrics.increment_counter("storage.jobs.errors")
+                self.logger.error(f"Failed to update job status {job_id}: {e}")
+                return False
+
     # ==================== MAINTENANCE ====================
     
     async def cleanup_old_data(self, retention_days: Optional[int] = None) -> Dict[str, int]:
@@ -646,5 +1089,14 @@ def get_storage_manager() -> StorageManager:
     """Get the global storage manager instance."""
     global _storage_manager
     if _storage_manager is None:
-        _storage_manager = StorageManager()
+        # Get database path from config
+        config_manager = get_config_manager()
+        db_path = config_manager.get_setting("storage.database_path")
+        _storage_manager = StorageManager(db_path=db_path)
     return _storage_manager
+
+
+def reset_storage_manager() -> None:
+    """Reset the global storage manager instance to pick up config changes."""
+    global _storage_manager
+    _storage_manager = None

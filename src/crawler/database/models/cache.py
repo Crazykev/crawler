@@ -48,16 +48,28 @@ class CacheEntry(Base):
         Index("idx_cache_entries_last_accessed", "last_accessed"),
     )
     
-    def is_expired(self) -> bool:
-        """Check if the cache entry has expired."""
+    def is_expired(self, current_time: Optional[datetime] = None) -> bool:
+        """Check if the cache entry has expired.
+        
+        Args:
+            current_time: Current timestamp to compare against (optional)
+        """
         if self.expires_at is None:
             return False
-        return datetime.utcnow() > self.expires_at
+        if current_time is None:
+            current_time = datetime.utcnow()
+        return current_time > self.expires_at
     
-    def increment_access_count(self) -> None:
-        """Increment access count and update last accessed time."""
+    def increment_access_count(self, current_time: Optional[datetime] = None) -> None:
+        """Increment access count and update last accessed time.
+        
+        Args:
+            current_time: Current timestamp to use (optional)
+        """
         self.access_count += 1
-        self.last_accessed = datetime.utcnow()
+        if current_time is None:
+            current_time = datetime.utcnow()
+        self.last_accessed = current_time
     
     def __repr__(self) -> str:
         return (

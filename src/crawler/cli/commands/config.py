@@ -19,8 +19,15 @@ logger = get_logger(__name__)
 
 
 @click.group()
+@click.option(
+    "--config",
+    "-c",
+    "config_path",
+    type=click.Path(),
+    help="Configuration file path"
+)
 @click.pass_context
-def config(ctx):
+def config(ctx, config_path):
     """Manage crawler configuration.
     
     The crawler uses a hierarchical configuration system that supports
@@ -43,7 +50,12 @@ def config(ctx):
         # Validate configuration
         crawler config validate
     """
-    pass
+    # Ensure context object exists
+    ctx.ensure_object(dict)
+    
+    # Store config path in context for subcommands
+    if config_path:
+        ctx.obj['config_path'] = config_path
 
 
 @config.command()
@@ -104,7 +116,14 @@ def get(ctx, key, format):
     quiet = ctx.obj.get('quiet', False)
     
     try:
-        config_manager = get_config_manager()
+        config_path = ctx.obj.get('config_path') if ctx.obj else None
+        if config_path:
+            from ...foundation.config import ConfigManager
+            config_manager = ConfigManager(config_path)
+            # Make sure to load the config from file
+            config_manager.load_from_file()
+        else:
+            config_manager = get_config_manager()
         value = config_manager.get_setting(key)
         
         if value is None:
@@ -147,7 +166,21 @@ def set(ctx, key, value, value_type, persistent):
     quiet = ctx.obj.get('quiet', False)
     
     try:
-        config_manager = get_config_manager()
+        config_path = ctx.obj.get('config_path') if ctx.obj else None
+        if config_path:
+            from ...foundation.config import ConfigManager
+            config_manager = ConfigManager(config_path)
+            # Load existing config if file exists
+            if Path(config_path).exists():
+                config_manager.load_from_file()
+        else:
+            config_manager = get_config_manager()
+        
+        # Auto-detect type for known settings if type is default (string)
+        if value_type == "string":
+            detected_type = _auto_detect_type(key, value)
+            if detected_type != "string":
+                value_type = detected_type
         
         # Convert value to appropriate type
         converted_value = _convert_value(value, value_type)
@@ -155,8 +188,8 @@ def set(ctx, key, value, value_type, persistent):
         # Set the value
         config_manager.set_setting(key, converted_value)
         
-        if persistent:
-            # Save to file
+        if persistent or config_path:
+            # Save to file (always save if using custom config path)
             config_manager.save_to_file()
             if not quiet:
                 console.print(f"[green]Configuration saved to file.[/green]")
@@ -341,6 +374,64 @@ def export(ctx, output_file, format):
 
 
 # Helper functions
+
+def _auto_detect_type(key: str, value: str) -> str:
+    """Auto-detect the appropriate type for a configuration key."""
+    # Known integer settings
+    integer_keys = {
+        "timeout", "max_depth", "max_pages", "max_duration", "concurrent_requests",
+        "cache_ttl", "session_timeout", "retention_days", "cache_size",
+        "viewport_width", "viewport_height", "retry_attempts", "max_concurrent",
+        "collection_interval", "port"
+    }
+    
+    # Known float settings
+    float_keys = {"delay"}
+    
+    # Known boolean settings
+    boolean_keys = {
+        "headless", "cache_enabled", "respect_robots", "allow_external_links",
+        "allow_subdomains", "enabled", "wal_mode", "create_index", "compress_results"
+    }
+    
+    # Check if the key (or last part of dotted key) matches known patterns
+    key_parts = key.split(".")
+    last_key = key_parts[-1]
+    
+    if last_key in boolean_keys or any(k in key.lower() for k in ["enabled", "headless"]):
+        return "bool"
+    elif last_key in integer_keys or any(k in key.lower() for k in ["timeout", "max_", "count", "size", "port"]):
+        # Also try to parse as int to confirm
+        try:
+            int(value)
+            return "int"
+        except ValueError:
+            pass
+    elif last_key in float_keys or "delay" in key.lower():
+        try:
+            float(value)
+            return "float"
+        except ValueError:
+            pass
+    
+    # Fallback: try to detect by value format
+    if value.lower() in ("true", "false", "yes", "no", "on", "off", "1", "0"):
+        return "bool"
+    
+    try:
+        int(value)
+        return "int"
+    except ValueError:
+        pass
+    
+    try:
+        float(value)
+        return "float"
+    except ValueError:
+        pass
+    
+    return "string"
+
 
 def _convert_value(value: str, value_type: str) -> Any:
     """Convert string value to appropriate type."""

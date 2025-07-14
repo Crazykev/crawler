@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator, HttpUrl
+from pydantic import BaseModel, Field, field_validator, HttpUrl
 from .scrape import ScrapeOptions, ExtractionStrategyConfig, OutputFormat, ScrapeResult
 
 
@@ -167,7 +167,7 @@ class CrawlStatistics(BaseModel):
 class CrawlRequest(BaseModel):
     """Request model for crawling operations."""
     
-    start_urls: List[HttpUrl] = Field(..., min_items=1)
+    start_urls: List[HttpUrl] = Field(..., min_length=1)
     crawl_rules: Optional[CrawlRules] = None
     scrape_options: Optional[ScrapeOptions] = None
     extraction_strategy: Optional[ExtractionStrategyConfig] = None

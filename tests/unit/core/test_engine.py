@@ -27,7 +27,7 @@ class TestCrawlEngine:
         assert engine._crawler is None
     
     @pytest.mark.asyncio
-    async def test_initialize_success(self, mock_crawl4ai):
+    async def test_initialize_success(self, mock_asyncwebcrawler):
         """Test successful engine initialization."""
         engine = CrawlEngine()
         
@@ -49,7 +49,7 @@ class TestCrawlEngine:
                 await engine.initialize()
     
     @pytest.mark.asyncio
-    async def test_get_crawler_default_config(self, mock_crawl4ai):
+    async def test_get_crawler_default_config(self, mock_asyncwebcrawler):
         """Test getting crawler with default configuration."""
         engine = CrawlEngine()
         engine.config_manager = Mock()
@@ -64,10 +64,10 @@ class TestCrawlEngine:
         
         assert crawler is not None
         # Verify we got the mocked crawler instance
-        assert crawler == mock_crawl4ai
+        assert crawler == mock_asyncwebcrawler
     
     @pytest.mark.asyncio
-    async def test_get_crawler_custom_config(self, mock_crawl4ai):
+    async def test_get_crawler_custom_config(self, mock_asyncwebcrawler):
         """Test getting crawler with custom browser configuration."""
         engine = CrawlEngine()
         engine.config_manager = Mock()
@@ -85,7 +85,7 @@ class TestCrawlEngine:
         
         assert crawler is not None
         # Verify we got the mocked crawler instance
-        assert crawler == mock_crawl4ai
+        assert crawler == mock_asyncwebcrawler
     
     @pytest.mark.asyncio
     async def test_get_crawler_without_crawl4ai(self):
@@ -243,7 +243,7 @@ class TestCrawlEngine:
             engine.logger.warning.assert_called_once()
     
     @pytest.mark.asyncio
-    async def test_scrape_single_success(self, mock_crawl4ai):
+    async def test_scrape_single_success(self, mock_asyncwebcrawler):
         """Test successful single page scraping."""
         engine = CrawlEngine()
         engine.storage_manager = Mock()
@@ -263,7 +263,7 @@ class TestCrawlEngine:
         mock_result.metadata = {"title": "Test Page"}
         mock_result.links = []
         mock_result.media = []
-        mock_crawl4ai.arun.return_value = mock_result
+        mock_asyncwebcrawler.arun.return_value = mock_result
         
         url = "https://example.com"
         result = await engine.scrape_single(url)
@@ -280,7 +280,7 @@ class TestCrawlEngine:
         engine.metrics.record_timing.assert_called()
     
     @pytest.mark.asyncio
-    async def test_scrape_single_cache_hit(self, mock_crawl4ai):
+    async def test_scrape_single_cache_hit(self, mock_asyncwebcrawler):
         """Test single page scraping with cache hit."""
         engine = CrawlEngine()
         engine.storage_manager = Mock()
@@ -298,10 +298,10 @@ class TestCrawlEngine:
         engine.metrics.increment_counter.assert_called_with("crawl_engine.cache_hits")
         
         # Verify crawler was not called
-        mock_crawl4ai.arun.assert_not_called()
+        mock_asyncwebcrawler.arun.assert_not_called()
     
     @pytest.mark.asyncio
-    async def test_scrape_single_failed_crawl(self, mock_crawl4ai):
+    async def test_scrape_single_failed_crawl(self, mock_asyncwebcrawler):
         """Test single page scraping with failed crawl."""
         engine = CrawlEngine()
         engine.storage_manager = Mock()
@@ -314,7 +314,7 @@ class TestCrawlEngine:
         mock_result.success = False
         mock_result.status_code = 404
         mock_result.error_message = "Page not found"
-        mock_crawl4ai.arun.return_value = mock_result
+        mock_asyncwebcrawler.arun.return_value = mock_result
         
         url = "https://example.com/notfound"
         
@@ -325,7 +325,7 @@ class TestCrawlEngine:
         engine.metrics.increment_counter.assert_any_call("crawl_engine.cache_misses")
     
     @pytest.mark.asyncio
-    async def test_scrape_single_timeout(self, mock_crawl4ai):
+    async def test_scrape_single_timeout(self, mock_asyncwebcrawler):
         """Test single page scraping with timeout."""
         engine = CrawlEngine()
         engine.storage_manager = Mock()
@@ -334,7 +334,7 @@ class TestCrawlEngine:
         engine.metrics.increment_counter = Mock()
         
         # Mock timeout exception
-        mock_crawl4ai.arun.side_effect = asyncio.TimeoutError("Request timed out")
+        mock_asyncwebcrawler.arun.side_effect = asyncio.TimeoutError("Request timed out")
         
         url = "https://example.com"
         
@@ -346,7 +346,7 @@ class TestCrawlEngine:
         engine.metrics.increment_counter.assert_any_call("crawl_engine.scrapes.timeout")
     
     @pytest.mark.asyncio
-    async def test_scrape_single_network_error(self, mock_crawl4ai):
+    async def test_scrape_single_network_error(self, mock_asyncwebcrawler):
         """Test single page scraping with network error."""
         engine = CrawlEngine()
         engine.storage_manager = Mock()
@@ -355,7 +355,7 @@ class TestCrawlEngine:
         engine.metrics.increment_counter = Mock()
         
         # Mock connection error
-        mock_crawl4ai.arun.side_effect = Exception("Connection refused")
+        mock_asyncwebcrawler.arun.side_effect = Exception("Connection refused")
         
         url = "https://example.com"
         
@@ -367,7 +367,7 @@ class TestCrawlEngine:
         engine.metrics.increment_counter.assert_any_call("crawl_engine.scrapes.error")
     
     @pytest.mark.asyncio
-    async def test_scrape_single_with_extraction_strategy(self, mock_crawl4ai):
+    async def test_scrape_single_with_extraction_strategy(self, mock_asyncwebcrawler):
         """Test single page scraping with extraction strategy."""
         engine = CrawlEngine()
         engine.storage_manager = Mock()
@@ -386,7 +386,7 @@ class TestCrawlEngine:
         mock_result.metadata = {}
         mock_result.links = []
         mock_result.media = []
-        mock_crawl4ai.arun.return_value = mock_result
+        mock_asyncwebcrawler.arun.return_value = mock_result
         
         extraction_strategy = {
             "type": "css",
@@ -406,11 +406,11 @@ class TestCrawlEngine:
             mock_translate.assert_called_once_with(extraction_strategy)
             
             # Verify strategy was passed to crawler
-            call_args = mock_crawl4ai.arun.call_args[1]
+            call_args = mock_asyncwebcrawler.arun.call_args[1]
             assert call_args["extraction_strategy"] == mock_strategy
     
     @pytest.mark.asyncio
-    async def test_scrape_single_with_js_code(self, mock_crawl4ai):
+    async def test_scrape_single_with_js_code(self, mock_asyncwebcrawler):
         """Test single page scraping with JavaScript code."""
         engine = CrawlEngine()
         engine.storage_manager = Mock()
@@ -429,7 +429,7 @@ class TestCrawlEngine:
         mock_result.metadata = {}
         mock_result.links = []
         mock_result.media = []
-        mock_crawl4ai.arun.return_value = mock_result
+        mock_asyncwebcrawler.arun.return_value = mock_result
         
         options = {
             "js_code": "document.querySelector('button').click();",
@@ -441,12 +441,12 @@ class TestCrawlEngine:
         assert result["success"] is True
         
         # Verify JS code and wait_for were passed to crawler
-        call_args = mock_crawl4ai.arun.call_args[1]
+        call_args = mock_asyncwebcrawler.arun.call_args[1]
         assert call_args["js_code"] == options["js_code"]
         assert call_args["wait_for"] == options["wait_for"]
     
     @pytest.mark.asyncio
-    async def test_scrape_batch_success(self, mock_crawl4ai):
+    async def test_scrape_batch_success(self, mock_asyncwebcrawler):
         """Test successful batch scraping."""
         engine = CrawlEngine()
         engine.config_manager = Mock()
@@ -479,7 +479,7 @@ class TestCrawlEngine:
             engine.metrics.record_metric.assert_called()
     
     @pytest.mark.asyncio
-    async def test_scrape_batch_concurrency_limit(self, mock_crawl4ai):
+    async def test_scrape_batch_concurrency_limit(self, mock_asyncwebcrawler):
         """Test batch scraping with concurrency limit."""
         engine = CrawlEngine()
         engine.config_manager = Mock()
@@ -499,7 +499,7 @@ class TestCrawlEngine:
             assert mock_scrape.call_count == 10
     
     @pytest.mark.asyncio
-    async def test_scrape_batch_with_errors(self, mock_crawl4ai):
+    async def test_scrape_batch_with_errors(self, mock_asyncwebcrawler):
         """Test batch scraping with individual failures."""
         engine = CrawlEngine()
         engine.config_manager = Mock()
@@ -664,7 +664,7 @@ class TestCrawlEngine:
         assert result == "unknown"
     
     @pytest.mark.asyncio
-    async def test_extract_links_from_page_success(self, mock_crawl4ai):
+    async def test_extract_links_from_page_success(self, mock_asyncwebcrawler):
         """Test extracting links from a page for crawling."""
         engine = CrawlEngine()
         
@@ -693,7 +693,7 @@ class TestCrawlEngine:
             assert "https://external.com/page" not in discovered_urls
     
     @pytest.mark.asyncio
-    async def test_extract_links_from_page_failed_scrape(self, mock_crawl4ai):
+    async def test_extract_links_from_page_failed_scrape(self, mock_asyncwebcrawler):
         """Test extracting links from page when scraping fails."""
         engine = CrawlEngine()
         
@@ -705,7 +705,7 @@ class TestCrawlEngine:
             assert discovered_urls == []
     
     @pytest.mark.asyncio
-    async def test_extract_links_from_page_exception(self, mock_crawl4ai):
+    async def test_extract_links_from_page_exception(self, mock_asyncwebcrawler):
         """Test extracting links from page with exception."""
         engine = CrawlEngine()
         engine.logger = Mock()
@@ -769,7 +769,7 @@ class TestCrawlEngineIntegration:
     """Integration tests for crawl engine."""
     
     @pytest.mark.asyncio
-    async def test_full_scraping_workflow(self, mock_crawl4ai):
+    async def test_full_scraping_workflow(self, mock_asyncwebcrawler):
         """Test complete scraping workflow from URL to storage."""
         engine = CrawlEngine()
         
@@ -790,7 +790,7 @@ class TestCrawlEngineIntegration:
         mock_result.metadata = {"title": "Test Page"}
         mock_result.links = []
         mock_result.media = []
-        mock_crawl4ai.arun.return_value = mock_result
+        mock_asyncwebcrawler.arun.return_value = mock_result
         
         await engine.initialize()
         
@@ -804,7 +804,7 @@ class TestCrawlEngineIntegration:
         assert "metadata" in result
         
     @pytest.mark.asyncio
-    async def test_batch_scraping_with_mixed_results(self, mock_crawl4ai):
+    async def test_batch_scraping_with_mixed_results(self, mock_asyncwebcrawler):
         """Test batch scraping with mix of successful and failed requests."""
         engine = CrawlEngine()
         engine.config_manager = Mock()
@@ -836,7 +836,7 @@ class TestCrawlEngineIntegration:
             assert "error" in results[3]
             
     @pytest.mark.asyncio
-    async def test_link_discovery_and_filtering(self, mock_crawl4ai):
+    async def test_link_discovery_and_filtering(self, mock_asyncwebcrawler):
         """Test link discovery with include/exclude patterns."""
         engine = CrawlEngine()
         
@@ -870,7 +870,7 @@ class TestCrawlEngineIntegration:
             assert "https://external.com/page" not in discovered_urls
     
     @pytest.mark.asyncio
-    async def test_error_handling_and_recovery(self, mock_crawl4ai):
+    async def test_error_handling_and_recovery(self, mock_asyncwebcrawler):
         """Test error handling and recovery mechanisms."""
         engine = CrawlEngine()
         engine.storage_manager = Mock()
@@ -879,13 +879,13 @@ class TestCrawlEngineIntegration:
         engine.metrics.increment_counter = Mock()
         
         # Test timeout error
-        mock_crawl4ai.arun.side_effect = asyncio.TimeoutError()
+        mock_asyncwebcrawler.arun.side_effect = asyncio.TimeoutError()
         
         with pytest.raises(TimeoutError):
             await engine.scrape_single("https://slow-site.com")
         
         # Test network error
-        mock_crawl4ai.arun.side_effect = Exception("Connection failed")
+        mock_asyncwebcrawler.arun.side_effect = Exception("Connection failed")
         
         with pytest.raises(NetworkError):
             await engine.scrape_single("https://down-site.com")

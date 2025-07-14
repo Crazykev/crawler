@@ -30,6 +30,7 @@ logger = get_logger(__name__)
 @click.option(
     "--output",
     "-o",
+    "--output-dir",
     type=click.Path(),
     required=True,
     help="Output directory for results"
@@ -233,9 +234,33 @@ def _get_urls_from_input(urls: tuple, file_path: Optional[str]) -> List[str]:
     """Get URLs from command line arguments or file."""
     url_list = []
     
-    # Add URLs from command line
+    # Add URLs from command line - but check if they're file paths first
     if urls:
-        url_list.extend(urls)
+        for url in urls:
+            # Check if this "URL" is actually a file path
+            if Path(url).exists() and not url.startswith(('http://', 'https://')):
+                # It's a file path, read URLs from it
+                file_obj = Path(url)
+                content = file_obj.read_text().strip()
+                
+                # Handle different file formats
+                if url.endswith('.json'):
+                    # JSON format
+                    data = json.loads(content)
+                    if isinstance(data, list):
+                        url_list.extend(data)
+                    elif isinstance(data, dict) and 'urls' in data:
+                        url_list.extend(data['urls'])
+                else:
+                    # Plain text format (one URL per line)
+                    lines = content.split('\n')
+                    for line in lines:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            url_list.append(line)
+            else:
+                # It's a regular URL
+                url_list.append(url)
     
     # Add URLs from file
     if file_path:

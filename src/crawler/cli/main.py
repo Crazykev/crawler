@@ -11,6 +11,7 @@ from rich.traceback import install
 from ..foundation.config import get_config_manager
 from ..foundation.logging import setup_logging, get_logger
 from ..foundation.errors import handle_error, CrawlerError
+from ..version import __version__
 from .commands import scrape, crawl, batch, session, config, status
 
 # Install rich traceback handler
@@ -71,7 +72,7 @@ def handle_cli_error(error: Exception, debug: bool = False) -> int:
 @click.option(
     "--config",
     "-c",
-    type=click.Path(exists=True),
+    type=click.Path(),
     help="Configuration file path"
 )
 @click.option(
@@ -91,7 +92,7 @@ def handle_cli_error(error: Exception, debug: bool = False) -> int:
     is_flag=True, 
     help="Disable colored output"
 )
-@click.version_option()
+@click.version_option(version=__version__, prog_name="crawler")
 @click.pass_context
 def cli(ctx, config, verbose, quiet, no_color):
     """Crawler - A comprehensive web scraping and crawling solution.
@@ -139,9 +140,14 @@ def cli(ctx, config, verbose, quiet, no_color):
     
     # Initialize configuration if custom path provided
     if config:
+        from pathlib import Path
         config_manager = get_config_manager()
-        config_manager.config_path = config
+        config_manager.config_path = Path(config)
         config_manager.reload_config()
+        
+        # Reset storage manager to pick up new configuration
+        from ..core.storage import reset_storage_manager
+        reset_storage_manager()
 
 
 # Add command groups

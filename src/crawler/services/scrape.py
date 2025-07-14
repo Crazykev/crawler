@@ -30,7 +30,9 @@ class ScrapeService:
         """Initialize the scrape service."""
         try:
             # Initialize dependencies
+            await self.storage_manager.initialize()
             await self.crawl_engine.initialize()
+            await self.job_manager.initialize()
             
             # Register job handler
             self.job_manager.register_handler(JobType.SCRAPE_SINGLE, self._handle_scrape_job)
@@ -75,45 +77,111 @@ class ScrapeService:
         )
         
         with timer("scrape_service.scrape_single"):
+            # Validate URL - handle validation errors gracefully
             try:
-                # Validate URL
                 self._validate_url(url)
-                
-                # Merge with default options
-                scrape_options = self._get_default_scrape_options()
-                scrape_options.update(options)
-                
-                # Execute scraping using crawl engine
-                result = await self.crawl_engine.scrape_single(
-                    url=url,
-                    options=scrape_options,
-                    extraction_strategy=extraction_strategy,
-                    session_id=session_id
-                )
-                
-                # Apply output format transformation
-                formatted_result = self._format_result(result, output_format)
-                
-                # Store result if requested
-                if store_result:
-                    await self._store_scrape_result(formatted_result)
-                
-                # Update metrics
-                self.metrics.increment_counter("scrape_service.scrapes.completed")
-                self.metrics.record_timing(
-                    "scrape_service.scrape_duration",
-                    formatted_result.get("metadata", {}).get("load_time", 0)
-                )
-                
-                self.logger.info(f"Successfully scraped {url}")
-                return formatted_result
-                
-            except Exception as e:
+            except ValidationError as e:
+                # Return error result for invalid URLs
                 self.metrics.increment_counter("scrape_service.scrapes.failed")
-                error_msg = f"Failed to scrape {url}: {e}"
+                error_msg = f"Invalid URL {url}: {str(e)}"
                 self.logger.error(error_msg)
                 handle_error(e, context)
-                raise
+                
+                return {
+                    "success": False,
+                    "url": url,
+                    "error": str(e),
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            
+            # Merge with default options
+            scrape_options = self._get_default_scrape_options()
+            scrape_options.update(options)
+            
+            # Get retry configuration
+            retry_attempts = scrape_options.get("retry_attempts", scrape_options.get("retry_count", 3))
+            retry_delay = scrape_options.get("retry_delay", 1.0)
+            
+            last_error = None
+            
+            # Retry loop
+            for attempt in range(retry_attempts):
+                try:
+                    # Execute scraping using crawl engine
+                    result = await self.crawl_engine.scrape_single(
+                        url=url,
+                        options=scrape_options,
+                        extraction_strategy=extraction_strategy,
+                        session_id=session_id
+                    )
+                    
+                    # Apply output format transformation
+                    formatted_result = self._format_result(result, output_format)
+                    
+                    # For service layer, extract content based on output format if not JSON
+                    if output_format != "json":
+                        content = formatted_result.get("content", {})
+                        if isinstance(content, dict):
+                            if output_format == "markdown":
+                                formatted_result["content"] = content.get("markdown", "")
+                            elif output_format == "html":
+                                formatted_result["content"] = content.get("html", "")
+                            elif output_format == "text":
+                                formatted_result["content"] = content.get("text", "")
+                            else:
+                                formatted_result["content"] = content.get("markdown", "")
+                    
+                    # Ensure the URL in the result matches the actual URL being scraped
+                    formatted_result["url"] = url
+                    
+                    # Store result if requested
+                    if store_result:
+                        await self._store_scrape_result(formatted_result)
+                    
+                    # Update metrics
+                    self.metrics.increment_counter("scrape_service.scrapes.completed")
+                    self.metrics.record_timing(
+                        "scrape_service.scrape_duration",
+                        formatted_result.get("metadata", {}).get("load_time", 0)
+                    )
+                    
+                    if attempt > 0:
+                        self.logger.info(f"Successfully scraped {url} on attempt {attempt + 1}")
+                    else:
+                        self.logger.info(f"Successfully scraped {url}")
+                    return formatted_result
+                    
+                except (NetworkError, ExtractionError) as e:
+                    last_error = e
+                    if attempt < retry_attempts - 1:
+                        # Calculate exponential backoff delay
+                        backoff_delay = retry_delay * (2 ** attempt)
+                        # Wait before retrying
+                        await asyncio.sleep(backoff_delay)
+                        self.logger.warning(f"Scrape attempt {attempt + 1} failed for {url}: {e}. Retrying after {backoff_delay:.2f}s...")
+                        continue
+                    else:
+                        # Final attempt failed
+                        break
+                        
+                except Exception as e:
+                    # Non-retryable error
+                    last_error = e
+                    break
+            
+            # All attempts failed
+            self.metrics.increment_counter("scrape_service.scrapes.failed")
+            error_msg = f"Failed to scrape {url}: {last_error}"
+            self.logger.error(error_msg)
+            handle_error(last_error, context)
+            
+            # Return error result instead of raising
+            return {
+                "success": False,
+                "url": url,
+                "error": str(last_error),
+                "timestamp": datetime.utcnow().isoformat()
+            }
     
     async def scrape_single_async(
         self,
@@ -175,7 +243,10 @@ class ScrapeService:
         extraction_strategy: Optional[Dict[str, Any]] = None,
         output_format: str = "markdown",
         max_concurrent: int = 5,
-        store_results: bool = True
+        concurrent_requests: Optional[int] = None,
+        store_results: bool = True,
+        continue_on_error: bool = True,
+        delay: float = 0.0
     ) -> List[Dict[str, Any]]:
         """Scrape multiple URLs concurrently.
         
@@ -207,17 +278,43 @@ class ScrapeService:
                 if not valid_urls:
                     raise ValidationError("No valid URLs provided")
                 
+                # Use concurrent_requests if provided, otherwise max_concurrent
+                actual_concurrent = concurrent_requests if concurrent_requests is not None else max_concurrent
+                
                 # Merge with default options
                 scrape_options = self._get_default_scrape_options()
                 scrape_options.update(options)
                 
-                # Execute batch scraping using crawl engine
-                results = await self.crawl_engine.scrape_batch(
-                    urls=valid_urls,
-                    options=scrape_options,
-                    extraction_strategy=extraction_strategy,
-                    max_concurrent=max_concurrent
-                )
+                # Execute batch scraping using individual scrape_single calls
+                results = []
+                semaphore = asyncio.Semaphore(actual_concurrent)
+                
+                async def scrape_with_semaphore(url):
+                    async with semaphore:
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                        
+                        result = await self.scrape_single(
+                            url=url,
+                            options=scrape_options,
+                            extraction_strategy=extraction_strategy,
+                            output_format=output_format,
+                            store_result=False  # We'll handle storage below
+                        )
+                        
+                        # If continue_on_error is False and we got an error result, raise exception
+                        if not continue_on_error and not result.get("success", False):
+                            from ..foundation.errors import NetworkError
+                            raise NetworkError(result.get("error", "Unknown error"))
+                        
+                        return result
+                
+                # Execute all scraping tasks
+                tasks = [scrape_with_semaphore(url) for url in valid_urls]
+                if continue_on_error:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                else:
+                    results = await asyncio.gather(*tasks, return_exceptions=False)
                 
                 # Format results
                 formatted_results = []
@@ -265,6 +362,7 @@ class ScrapeService:
         extraction_strategy: Optional[Dict[str, Any]] = None,
         output_format: str = "markdown",
         max_concurrent: int = 5,
+        concurrent_requests: Optional[int] = None,
         priority: int = 0
     ) -> str:
         """Scrape multiple URLs asynchronously via job queue.
@@ -293,13 +391,17 @@ class ScrapeService:
             if not valid_urls:
                 raise ValidationError("No valid URLs provided")
             
+            # Use concurrent_requests if provided, otherwise max_concurrent
+            actual_concurrent = concurrent_requests if concurrent_requests is not None else max_concurrent
+            
             # Prepare job data
             job_data = {
                 "urls": valid_urls,
                 "options": options or {},
                 "extraction_strategy": extraction_strategy,
                 "output_format": output_format,
-                "max_concurrent": max_concurrent
+                "max_concurrent": actual_concurrent,
+                "concurrent_requests": concurrent_requests if concurrent_requests is not None else max_concurrent
             }
             
             # Submit job
@@ -333,7 +435,7 @@ class ScrapeService:
             raise ValidationError("URL must be a non-empty string")
         
         if not url.startswith(("http://", "https://")):
-            raise ValidationError("URL must start with http:// or https://")
+            raise ValidationError("Invalid URL format: must start with http:// or https://")
         
         # Additional URL validation can be added here
         try:
@@ -384,25 +486,42 @@ class ScrapeService:
         # Extract content based on format
         content = result.get("content", {})
         
-        if output_format == "markdown":
-            formatted_result["content"] = content.get("markdown", "")
-        elif output_format == "html":
-            formatted_result["content"] = content.get("html", "")
-        elif output_format == "text":
-            formatted_result["content"] = content.get("text", "")
-        elif output_format == "json":
+        if output_format == "json":
             # Keep structured format for JSON
             formatted_result["content"] = content
         else:
-            # Default to markdown
-            formatted_result["content"] = content.get("markdown", "")
+            # For other formats, preserve the original content structure
+            # The service layer will extract the specific format
+            formatted_result["content"] = content
         
         # Add output format to metadata
         if "metadata" not in formatted_result:
             formatted_result["metadata"] = {}
         formatted_result["metadata"]["output_format"] = output_format
         
+        # Add timestamp if not present
+        if "timestamp" not in formatted_result and "created_at" not in formatted_result:
+            formatted_result["timestamp"] = datetime.utcnow().isoformat()
+        
         return formatted_result
+    
+    def _prepare_options(self, user_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Prepare and merge scraping options with defaults.
+        
+        Args:
+            user_options: User-provided options
+            
+        Returns:
+            Merged options dictionary
+        """
+        # Start with default options
+        options = self._get_default_scrape_options()
+        
+        # Update with user options if provided
+        if user_options:
+            options.update(user_options)
+            
+        return options
     
     async def _store_scrape_result(self, result: Dict[str, Any]) -> Optional[str]:
         """Store scraping result in database.
@@ -446,7 +565,7 @@ class ScrapeService:
             
             # Store in database
             result_id = await self.storage_manager.store_crawl_result(
-                url=result.get("url", ""),
+                url_or_data=result.get("url", ""),
                 content_markdown=content_markdown,
                 content_html=content_html,
                 content_text=content_text,
@@ -521,12 +640,10 @@ class ScrapeService:
             
             return {
                 "success": True,
-                "result": {
-                    "total": len(results),
-                    "successful": successful,
-                    "failed": len(results) - successful,
-                    "results": results
-                }
+                "results": results,
+                "total": len(results),
+                "successful": successful,
+                "failed": len(results) - successful
             }
             
         except Exception as e:
@@ -546,3 +663,9 @@ def get_scrape_service() -> ScrapeService:
     if _scrape_service is None:
         _scrape_service = ScrapeService()
     return _scrape_service
+
+
+def reset_scrape_service() -> None:
+    """Reset the global scrape service instance."""
+    global _scrape_service
+    _scrape_service = None

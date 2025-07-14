@@ -1,6 +1,8 @@
 """Core crawling engine that integrates with crawl4ai."""
 
 import asyncio
+import ssl
+import socket
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin, urlparse
 from datetime import datetime
@@ -21,7 +23,7 @@ from ..foundation.config import get_config_manager
 from ..foundation.logging import get_logger
 from ..foundation.errors import (
     handle_error, NetworkError, TimeoutError, ExtractionError, 
-    ConfigurationError, ErrorContext
+    ConfigurationError, ValidationError, ErrorContext
 )
 from ..foundation.metrics import get_metrics_collector, timer
 from .storage import get_storage_manager
@@ -35,11 +37,20 @@ class CrawlEngine:
         self.config_manager = get_config_manager()
         self.metrics = get_metrics_collector()
         self.storage_manager = get_storage_manager()
+        self._session_service = None
         self._crawler: Optional[AsyncWebCrawler] = None
         
         # Check if crawl4ai is available
         if AsyncWebCrawler is None:
             self.logger.warning("crawl4ai not available - some functionality will be limited")
+    
+    @property
+    def session_service(self):
+        """Lazy import of session service to avoid circular imports."""
+        if self._session_service is None:
+            from ..services.session import get_session_service
+            self._session_service = get_session_service()
+        return self._session_service
     
     async def initialize(self) -> None:
         """Initialize the crawl engine."""
@@ -49,6 +60,9 @@ class CrawlEngine:
             
             # Initialize storage manager
             await self.storage_manager.initialize()
+            
+            # Initialize session service
+            await self.session_service.initialize()
             
             self.logger.info("Crawl engine initialized successfully")
         except Exception as e:
@@ -87,13 +101,23 @@ class CrawlEngine:
         config = {**default_config, **browser_config}
         
         # Create new crawler instance (crawl4ai manages browser lifecycle)
-        crawler = AsyncWebCrawler(
+        user_agent = config.get("user_agent")
+        if user_agent is None:
+            user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36"
+        self.logger.debug(f"Creating crawler with user_agent: {user_agent}")
+        
+        from crawl4ai.async_configs import BrowserConfig
+        browser_config = BrowserConfig(
             headless=config.get("headless", True),
             browser_type="chromium",  # Default to Chromium
-            user_agent=config.get("user_agent"),
+            user_agent=user_agent,
             viewport_width=config.get("viewport_width"),
             viewport_height=config.get("viewport_height"),
             verbose=self.logger.level <= 10  # DEBUG level
+        )
+        
+        crawler = AsyncWebCrawler(
+            config=browser_config
         )
         
         return crawler
@@ -216,6 +240,21 @@ class CrawlEngine:
                     "user_agent": options.get("user_agent"),
                 }
                 
+                # If session_id is provided, use session configuration
+                if session_id:
+                    session_obj = await self.get_session(session_id)
+                    if session_obj:
+                        session_config = session_obj.config
+                        # Override with session configuration (only if not None)
+                        if session_config.user_agent is not None:
+                            browser_config["user_agent"] = session_config.user_agent
+                        if session_config.timeout is not None:
+                            browser_config["timeout"] = session_config.timeout
+                        browser_config["headless"] = session_config.headless
+                    else:
+                        # Session not found - raise an error
+                        raise ConfigurationError(f"Session {session_id} not found or has been closed")
+                
                 # Get crawler instance
                 crawler = await self._get_crawler(browser_config)
                 
@@ -242,30 +281,126 @@ class CrawlEngine:
                 
                 # Execute the crawl
                 self.logger.debug(f"Starting crawl for URL: {url}")
-                
-                try:
-                    async with crawler:
-                        crawl_result = await crawler.arun(**crawl_params)
-                except asyncio.TimeoutError as e:
-                    error_msg = f"Timeout scraping {url}: {e}"
-                    self.metrics.increment_counter("crawl_engine.scrapes.timeout")
-                    self.logger.error(error_msg)
-                    timeout_error = TimeoutError(error_msg, timeout_duration=options.get("timeout", 30))
-                    handle_error(timeout_error, context)
-                    raise timeout_error
-                except Exception as e:
-                    error_msg = f"Failed to scrape {url}: {e}"
-                    self.metrics.increment_counter("crawl_engine.scrapes.error")
-                    self.logger.error(error_msg)
-                    
-                    if "connection" in str(e).lower():
+
+                # Get retry configuration
+                retry_count = options.get("retry_count", 1)
+                retry_delay = options.get("retry_delay", 1.0)
+                last_error = None
+
+                for attempt in range(retry_count):
+                    try:
+                        async with crawler:
+                            crawl_result = await crawler.arun(**crawl_params)
+                        break  # Success, exit retry loop
+                        
+                    except asyncio.TimeoutError as e:
+                        error_msg = f"Timeout scraping {url}: {e}"
+                        self.metrics.increment_counter("crawl_engine.scrapes.timeout")
+                        self.logger.error(error_msg)
+                        timeout_error = TimeoutError(error_msg, timeout_duration=options.get("timeout", 30))
+                        handle_error(timeout_error, context)
+                        last_error = timeout_error
+                        
+                        if attempt < retry_count - 1:
+                            backoff_delay = retry_delay * (2 ** attempt)
+                            self.logger.warning(f"Retrying {url} after {backoff_delay:.2f}s (attempt {attempt + 1}/{retry_count})")
+                            await asyncio.sleep(backoff_delay)
+                        else:
+                            raise timeout_error
+                            
+                    except NetworkError as e:
+                        # NetworkError should be retried
+                        self.metrics.increment_counter("crawl_engine.scrapes.error")
+                        self.logger.error(f"Network error scraping {url}: {e}")
+                        handle_error(e, context)
+                        last_error = e
+                        
+                        if attempt < retry_count - 1:
+                            backoff_delay = retry_delay * (2 ** attempt)
+                            self.logger.warning(f"Retrying {url} after {backoff_delay:.2f}s (attempt {attempt + 1}/{retry_count})")
+                            await asyncio.sleep(backoff_delay)
+                        else:
+                            raise e
+                            
+                    except (ssl.SSLError, socket.error, socket.gaierror, socket.herror, 
+                            ConnectionError, ConnectionRefusedError, ConnectionResetError) as e:
+                        # Handle specific network-related exceptions
+                        error_msg = f"Network error scraping {url}: {e}"
+                        self.metrics.increment_counter("crawl_engine.scrapes.error")
+                        self.logger.error(error_msg)
+                        
                         network_error = NetworkError(error_msg)
                         handle_error(network_error, context)
-                        raise network_error
-                    else:
-                        extraction_error = ExtractionError(error_msg)
-                        handle_error(extraction_error, context)
-                        raise extraction_error
+                        last_error = network_error
+                        
+                        if attempt < retry_count - 1:
+                            backoff_delay = retry_delay * (2 ** attempt)
+                            self.logger.warning(f"Retrying {url} after {backoff_delay:.2f}s (attempt {attempt + 1}/{retry_count})")
+                            await asyncio.sleep(backoff_delay)
+                        else:
+                            raise network_error
+                            
+                    except ValidationError as e:
+                        # ValidationError should not be retried - it's a permanent error
+                        self.metrics.increment_counter("crawl_engine.scrapes.error")
+                        self.logger.error(f"Validation error scraping {url}: {e}")
+                        handle_error(e, context)
+                        raise e
+                        
+                    except Exception as e:
+                        error_msg = f"Failed to scrape {url}: {e}"
+                        self.metrics.increment_counter("crawl_engine.scrapes.error")
+                        self.logger.error(error_msg)
+
+                        # Check if this is a network-related error
+                        error_str = str(e).lower()
+                        error_type = type(e).__name__.lower()
+                        
+                        # DNS-specific error patterns
+                        dns_patterns = [
+                            "dns", "resolution", "nxdomain", "name or service not known",
+                            "nodename", "servname", "gaierror", "herror", "getaddrinfo",
+                            "temporary failure in name resolution", "name resolution failed",
+                            "nonexistent-domain", ".invalid", "err_name_not_resolved"
+                        ]
+                        
+                        # Network error patterns
+                        network_patterns = [
+                            "connection", "ssl", "tls", "certificate", "dns", "resolution",
+                            "timeout", "unreachable", "refused", "reset", "socket", "host",
+                            "name", "protocol", "verify failed", "handshake", "network",
+                            "gaierror", "herror", "nodename", "servname", "temporary failure",
+                            "http", "response", "invalid response", "malformed response"
+                        ]
+                        
+                        # Check if this is a DNS-related error
+                        is_dns_error = any(pattern in error_str for pattern in dns_patterns)
+                        
+                        # Check if error is network-related
+                        is_network_error = (
+                            any(pattern in error_str for pattern in network_patterns) or
+                            any(pattern in error_type for pattern in ["ssl", "socket", "timeout", "connection", "gaierror", "herror"])
+                        )
+                        
+                        if is_network_error:
+                            # Create more specific error message for DNS errors
+                            if is_dns_error:
+                                error_msg = f"DNS resolution failed for {url}: {e}"
+                            
+                            network_error = NetworkError(error_msg)
+                            handle_error(network_error, context)
+                            last_error = network_error
+                            
+                            if attempt < retry_count - 1:
+                                backoff_delay = retry_delay * (2 ** attempt)
+                                self.logger.warning(f"Retrying {url} after {backoff_delay:.2f}s (attempt {attempt + 1}/{retry_count})")
+                                await asyncio.sleep(backoff_delay)
+                            else:
+                                raise network_error
+                        else:
+                            extraction_error = ExtractionError(error_msg)
+                            handle_error(extraction_error, context)
+                            raise extraction_error
                 
                 # Process the result
                 if crawl_result is None:
@@ -274,7 +409,61 @@ class CrawlEngine:
                 
                 if not crawl_result.success:
                     error_msg = f"Crawl failed for {url}: {crawl_result.error_message}"
-                    raise NetworkError(error_msg, status_code=crawl_result.status_code)
+                    
+                    # Check if this is a redirect error - should return failed result, not throw exception
+                    error_msg_lower = str(crawl_result.error_message).lower()
+                    
+                    # More specific redirect error detection
+                    redirect_patterns = [
+                        "redirect", "loop", "circular", "maximum number of redirects",
+                        "too many redirects", "redirect chain", "redirect limit"
+                    ]
+                    
+                    # Network error patterns that should NOT be treated as redirect errors
+                    network_patterns = [
+                        "connection", "ssl", "tls", "certificate", "dns", "resolution",
+                        "timeout", "unreachable", "refused", "reset", "socket", "host",
+                        "net::", "err_", "network", "handshake", "verify failed"
+                    ]
+                    
+                    is_redirect_error = (
+                        any(pattern in error_msg_lower for pattern in redirect_patterns) and
+                        not any(pattern in error_msg_lower for pattern in network_patterns)
+                    )
+                    
+                    if is_redirect_error:
+                        # For redirect errors, return a failed result instead of throwing
+                        end_time = datetime.utcnow()
+                        load_time = (end_time - start_time).total_seconds()
+                        
+                        result_data = {
+                            "url": url,
+                            "title": "",
+                            "success": False,
+                            "error": error_msg,
+                            "content": {
+                                "text": "",
+                                "html": "",
+                                "markdown": "",
+                                "extracted_data": None
+                            },
+                            "links": [],
+                            "images": [],
+                            "metadata": {
+                                "load_time": load_time,
+                                "size": 0,
+                                "extraction_strategy": extraction_strategy.get("type", "auto") if extraction_strategy else "auto",
+                                "output_format": options.get("output_format", "json"),
+                                "url": url
+                            }
+                        }
+                        
+                        self.metrics.increment_counter("crawl_engine.scrapes.failed")
+                        self.logger.warning(f"Redirect error for {url}: {error_msg}")
+                        return result_data
+                    else:
+                        # For other errors, throw NetworkError
+                        raise NetworkError(error_msg, status_code=crawl_result.status_code)
                 
                 # Extract content and metadata
                 end_time = datetime.utcnow()
@@ -284,19 +473,19 @@ class CrawlEngine:
                     "url": url,
                     "title": crawl_result.metadata.get("title", "") if crawl_result.metadata else "",
                     "success": True,
-                    "status_code": crawl_result.status_code,
+                    "status_code": getattr(crawl_result, 'status_code', 0),
                     "content": {
-                        "markdown": crawl_result.markdown,
-                        "html": crawl_result.html,
-                        "text": crawl_result.cleaned_html,
-                        "extracted_data": crawl_result.extracted_content if hasattr(crawl_result, 'extracted_content') else None
+                        "markdown": getattr(crawl_result, 'markdown', ""),
+                        "html": getattr(crawl_result, 'html', ""),
+                        "text": getattr(crawl_result, 'cleaned_html', ""),
+                        "extracted_data": getattr(crawl_result, 'extracted_content', None) if hasattr(crawl_result, 'extracted_content') else None
                     },
                     "links": self._extract_links(crawl_result),
                     "images": self._extract_images(crawl_result),
                     "metadata": {
                         "load_time": load_time,
                         "timestamp": end_time.isoformat(),
-                        "size": len(crawl_result.html) if crawl_result.html else 0,
+                        "size": len(getattr(crawl_result, 'html', "") or ""),
                         "extraction_strategy": extraction_strategy.get("type") if extraction_strategy else "auto"
                     }
                 }
@@ -317,7 +506,7 @@ class CrawlEngine:
                 self.logger.info(f"Successfully scraped {url} in {load_time:.2f}s")
                 return result_data
                 
-            except (TimeoutError, NetworkError, ExtractionError):
+            except (TimeoutError, NetworkError, ExtractionError, ValidationError):
                 # Re-raise our custom errors
                 raise
             except Exception as e:
@@ -347,13 +536,13 @@ class CrawlEngine:
                         links.append({
                             "url": link.get("href", ""),
                             "text": link.get("text", ""),
-                            "type": self._classify_link_type(link.get("href", ""), crawl_result.url)
+                            "type": self._classify_link_type(link.get("href", ""), getattr(crawl_result, 'url', ""))
                         })
                     elif isinstance(link, str):
                         links.append({
                             "url": link,
                             "text": "",
-                            "type": self._classify_link_type(link, crawl_result.url)
+                            "type": self._classify_link_type(link, getattr(crawl_result, 'url', ""))
                         })
             
         except Exception as e:
@@ -400,7 +589,10 @@ class CrawlEngine:
             Link type string
         """
         try:
-            if not link_url:
+            if not link_url or not isinstance(link_url, str):
+                return "unknown"
+            
+            if not base_url or not isinstance(base_url, str):
                 return "unknown"
             
             # Parse URLs
@@ -415,13 +607,17 @@ class CrawlEngine:
             if not link_parsed.netloc:
                 return "internal"
             
-            # Compare domains
-            if link_parsed.netloc == base_parsed.netloc:
-                return "internal"
-            elif link_parsed.netloc.endswith(f".{base_parsed.netloc}"):
-                return "subdomain"
-            else:
-                return "external"
+            # Compare domains (ensure netloc attributes are strings)
+            if (link_parsed.netloc and base_parsed.netloc and 
+                isinstance(link_parsed.netloc, str) and isinstance(base_parsed.netloc, str)):
+                if link_parsed.netloc == base_parsed.netloc:
+                    return "internal"
+                elif link_parsed.netloc.endswith(f".{base_parsed.netloc}"):
+                    return "subdomain"
+                else:
+                    return "external"
+            
+            return "unknown"
                 
         except Exception:
             return "unknown"
@@ -551,6 +747,68 @@ class CrawlEngine:
             self.logger.error(f"Failed to extract links from {url}: {e}")
             return []
     
+    async def create_session(
+        self,
+        session_config: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+        timeout_seconds: Optional[int] = None
+    ) -> str:
+        """Create a new browser session.
+        
+        Args:
+            session_config: Session configuration dict
+            session_id: Optional custom session ID
+            timeout_seconds: Session timeout in seconds
+            
+        Returns:
+            Session ID
+        """
+        from ..services.session import SessionConfig
+        
+        # Convert dict to SessionConfig if needed
+        config = None
+        if session_config is not None:
+            if isinstance(session_config, dict):
+                config = SessionConfig.from_dict(session_config)
+            else:
+                config = session_config
+        
+        return await self.session_service.create_session(
+            session_config=config,
+            session_id=session_id,
+            timeout_seconds=timeout_seconds
+        )
+    
+    async def close_session(self, session_id: str) -> bool:
+        """Close a browser session.
+        
+        Args:
+            session_id: Session ID to close
+            
+        Returns:
+            True if session was closed successfully
+        """
+        return await self.session_service.close_session(session_id)
+    
+    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get session information.
+        
+        Args:
+            session_id: Session ID
+            
+        Returns:
+            Session info or None if not found
+        """
+        return await self.session_service.get_session(session_id)
+    
+    async def list_sessions(self) -> List[Dict[str, Any]]:
+        """List all active sessions.
+        
+        Returns:
+            List of session info dictionaries
+        """
+        return await self.session_service.list_sessions()
+    
     async def close(self) -> None:
         """Clean up resources."""
         try:
@@ -572,3 +830,9 @@ def get_crawl_engine() -> CrawlEngine:
     if _crawl_engine is None:
         _crawl_engine = CrawlEngine()
     return _crawl_engine
+
+
+def reset_crawl_engine() -> None:
+    """Reset the global crawl engine instance."""
+    global _crawl_engine
+    _crawl_engine = None
