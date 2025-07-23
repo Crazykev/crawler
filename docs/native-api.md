@@ -657,7 +657,7 @@ Get current system configuration.
       "scrape": {
         "timeout": 30,
         "headless": true,
-        "retry_count": 3
+        "retry_count": 1
       },
       "crawl": {
         "max_depth": 3,
@@ -667,7 +667,7 @@ Get current system configuration.
       "system": {
         "max_workers": 10,
         "cache_enabled": true,
-        "log_level": "INFO"
+        "log_level": "WARNING"
       }
     }
   },
@@ -984,7 +984,7 @@ X-RateLimit-Window: 3600
       "Authorization": "Bearer your_token",
       "X-Custom-Header": "custom_value"
     },
-    "retry_count": 3,
+    "retry_count": 1,
     "timeout": 30
   }
 }

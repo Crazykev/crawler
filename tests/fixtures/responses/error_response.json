@@ -7,14 +7,14 @@
     "code": "TIMEOUT",
     "details": {
       "timeout": 30,
-      "retry_count": 3,
+      "retry_count": 1,
       "last_attempt": "2025-07-03T10:30:00Z"
     }
   },
   "status_code": null,
   "timestamp": "2025-07-03T10:30:00Z",
   "metadata": {
-    "retry_attempts": 3,
+    "retry_attempts": 1,
     "total_time": 90.5
   }
 }

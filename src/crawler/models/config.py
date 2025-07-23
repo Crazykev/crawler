@@ -36,7 +36,7 @@ class ScrapeConfig(BaseModel):
     
     # Timeouts
     timeout: int = Field(default=30, ge=1, le=300)
-    retry_attempts: int = Field(default=3, ge=0, le=10)
+    retry_attempts: int = Field(default=1, ge=0, le=10)
     retry_delay: float = Field(default=1.0, ge=0.0, le=60.0)
     
     # Browser settings
@@ -131,7 +131,7 @@ class LoggingConfig(BaseModel):
     """Configuration for logging."""
     
     # Log levels
-    level: LogLevel = LogLevel.INFO
+    level: LogLevel = LogLevel.WARNING
     file_level: Optional[LogLevel] = None
     console_level: Optional[LogLevel] = None
     
@@ -207,7 +207,7 @@ class JobsConfig(BaseModel):
     max_queue_size: int = Field(default=1000, ge=1, le=10000)
     
     # Job processing
-    retry_attempts: int = Field(default=3, ge=0, le=10)
+    retry_attempts: int = Field(default=1, ge=0, le=10)
     retry_delay: int = Field(default=5, ge=1, le=300)
     job_timeout: int = Field(default=3600, ge=60, le=86400)
     

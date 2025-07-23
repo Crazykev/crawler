@@ -26,7 +26,7 @@ class BrowserConfig(BaseModel):
 class ScrapeConfig(BaseModel):
     """Default scraping configuration."""
     timeout: int = 30
-    retry_count: int = 3
+    retry_count: int = 1
     retry_delay: float = 1.0
     cache_enabled: bool = True
     cache_ttl: int = 3600
@@ -90,7 +90,7 @@ class OutputConfig(BaseModel):
 
 class GlobalConfig(BaseModel):
     """Global system configuration."""
-    log_level: str = "INFO"
+    log_level: str = "WARNING"
     log_file: Optional[str] = "~/.crawler/logs/crawler.log"
     max_workers: int = 10
     api_port: int = 8000

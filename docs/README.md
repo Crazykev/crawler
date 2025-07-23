@@ -331,7 +331,7 @@ services:
       - ./data:/app/data  # SQLite数据目录
     environment:
       - CRAWLER_DATA_DIR=/app/data
-      - CRAWLER_LOG_LEVEL=INFO
+      - CRAWLER_LOG_LEVEL=WARNING
 ```
 
 ## Configuration Management
@@ -349,13 +349,13 @@ services:
 version: "1.0"
 
 global:
-  log_level: INFO
+  log_level: WARNING
   max_workers: 10
 
 scrape:
   timeout: 30
   headless: true
-  retry_count: 3
+  retry_count: 1
   cache_enabled: true
 
 crawl:

@@ -365,7 +365,23 @@ def _handle_output(
     if output_format == "json":
         output_content = json.dumps(result, indent=2, default=str)
     else:
-        output_content = result.get("content", "")
+        # Extract the appropriate content field based on format
+        content_data = result.get("content", {})
+        # Handle case where content might be a string instead of dict (error scenarios)
+        if isinstance(content_data, str):
+            output_content = content_data
+        elif isinstance(content_data, dict):
+            if output_format == "markdown":
+                output_content = content_data.get("markdown", "")
+            elif output_format == "html":
+                output_content = content_data.get("html", "")
+            elif output_format == "text":
+                output_content = content_data.get("text", "")
+            else:
+                # Default to markdown for backward compatibility
+                output_content = content_data.get("markdown", "") or content_data.get("text", "")
+        else:
+            output_content = ""
     
     # Save to file or print to console
     if output_path:

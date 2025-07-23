@@ -20,7 +20,7 @@ def main(args: Optional[list] = None) -> int:
     try:
         # Initialize configuration and logging
         config_manager = ConfigManager()
-        setup_logging(config_manager.get_setting("log_level", "INFO"))
+        setup_logging(config_manager.get_setting("log_level", "WARNING"))
         
         # Run CLI interface
         return cli(args=args, standalone_mode=False)

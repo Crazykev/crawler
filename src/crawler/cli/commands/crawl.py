@@ -506,7 +506,23 @@ def _handle_crawl_output(
                 content = json.dumps(page_result, indent=2, default=str)
                 ext = "json"
             else:
-                content = page_result.get("content", "")
+                # Extract the appropriate content field based on format
+                content_data = page_result.get("content", {})
+                # Handle case where content might be a string instead of dict (error scenarios)
+                if isinstance(content_data, str):
+                    content = content_data
+                elif isinstance(content_data, dict):
+                    if output_format == "markdown":
+                        content = content_data.get("markdown", "")
+                    elif output_format == "html":
+                        content = content_data.get("html", "")
+                    elif output_format == "text":
+                        content = content_data.get("text", "")
+                    else:
+                        # Default to markdown for backward compatibility
+                        content = content_data.get("markdown", "") or content_data.get("text", "")
+                else:
+                    content = ""
                 ext = "md" if output_format == "markdown" else output_format
             
             # Create safe filename from URL
@@ -536,7 +552,15 @@ def _handle_crawl_output(
             console.print("\n[bold]First 3 results:[/bold]")
             for i, page_result in enumerate(results[:3]):
                 console.print(f"\n[cyan]Page {i+1}:[/cyan] {page_result.get('url', 'Unknown')}")
-                content = page_result.get("content", "")
+                # Extract the appropriate content field
+                content_data = page_result.get("content", {})
+                # Handle case where content might be a string instead of dict (error scenarios)
+                if isinstance(content_data, str):
+                    content = content_data
+                elif isinstance(content_data, dict):
+                    content = content_data.get("markdown", "") or content_data.get("text", "")
+                else:
+                    content = ""
                 if len(content) > 200:
                     content = content[:200] + "..."
                 console.print(content)

@@ -83,7 +83,7 @@ crawler scrape [OPTIONS] URL
 --force-refresh             Force refresh cached content
 
 # Retry Options
---retry-count COUNT         Number of retry attempts (default: 3)
+--retry-count COUNT         Number of retry attempts (default: 1)
 --retry-delay SECONDS       Delay between retries (default: 1)
 ```
 
@@ -323,7 +323,7 @@ version: "1.0"
 
 # Global settings
 global:
-  log_level: INFO
+  log_level: WARNING
   log_file: ~/.crawler/logs/crawler.log
   max_workers: 10
 
@@ -331,7 +331,7 @@ global:
 scrape:
   timeout: 30
   headless: true
-  retry_count: 3
+  retry_count: 1
   retry_delay: 1
   cache_enabled: true
   cache_ttl: 3600
@@ -415,7 +415,7 @@ GEMINI_API_KEY=your_gemini_key
 
 # Configuration
 CRAWLER_CONFIG_PATH=~/.crawler/config.yaml
-CRAWLER_LOG_LEVEL=INFO
+CRAWLER_LOG_LEVEL=WARNING
 CRAWLER_DATABASE_PATH=~/.crawler/crawler.db
 CRAWLER_CACHE_TTL=3600
 
@@ -515,7 +515,7 @@ https://example.com,Example Page,2025-07-03T10:30:00Z,200,15678,1.23
     "timestamp": "2025-07-03T10:30:00Z",
     "details": {
       "timeout": 30,
-      "retry_count": 3
+      "retry_count": 1
     }
   }
 }

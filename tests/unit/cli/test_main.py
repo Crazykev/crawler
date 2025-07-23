@@ -105,7 +105,7 @@ class TestCLILogging:
         """Test CLI logging with invalid verbosity level."""
         with patch('src.crawler.cli.main.setup_logging') as mock_setup:
             setup_cli_logging(99)  # Invalid high level
-            mock_setup.assert_called_with(level="INFO")  # Should default to INFO
+            mock_setup.assert_called_with(level="WARNING")  # Should default to WARNING
 
 
 class TestCLIErrorHandling:

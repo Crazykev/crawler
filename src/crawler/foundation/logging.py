@@ -184,7 +184,7 @@ def setup_logging(level: Optional[str] = None, log_file: Optional[str] = None) -
     
     # Use provided values or get from config
     if level is None:
-        level = config_manager.get_setting("global.log_level", "INFO")
+        level = config_manager.get_setting("global.log_level", "WARNING")
     if log_file is None:
         log_file = config_manager.get_setting("global.log_file")
     
@@ -211,7 +211,7 @@ def configure_logging_from_config() -> None:
     """Configure logging using settings from ConfigManager."""
     try:
         config_manager = get_config_manager()
-        level = config_manager.get_setting("global.log_level", "INFO")
+        level = config_manager.get_setting("global.log_level", "WARNING")
         log_file = config_manager.get_setting("global.log_file")
         setup_logging(level=level, log_file=log_file)
     except Exception as e:

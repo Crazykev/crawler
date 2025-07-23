@@ -530,7 +530,7 @@ def _get_default_config() -> Dict[str, Any]:
             "cache_size": 1000,
         },
         "logging": {
-            "level": "INFO",
+            "level": "WARNING",
             "file": "crawler.log",
             "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         },
@@ -546,7 +546,7 @@ def _get_default_config() -> Dict[str, Any]:
         },
         "jobs": {
             "max_concurrent": 10,
-            "retry_attempts": 3,
+            "retry_attempts": 1,
             "retry_delay": 5,
         },
     }

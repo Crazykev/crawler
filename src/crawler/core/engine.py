@@ -865,7 +865,7 @@ class CrawlEngine:
             "timeout": options.get("timeout", 30),
             "headless": options.get("headless", True),
             "cache_enabled": options.get("cache_enabled", True),
-            "retry_count": options.get("retry_count", 3),
+            "retry_count": options.get("retry_count", 1),
         }
         
         # Validate ranges

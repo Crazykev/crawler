@@ -99,7 +99,7 @@ class ScrapeService:
             scrape_options.update(options)
             
             # Get retry configuration
-            retry_attempts = scrape_options.get("retry_attempts", scrape_options.get("retry_count", 3))
+            retry_attempts = scrape_options.get("retry_attempts", scrape_options.get("retry_count", 1))
             retry_delay = scrape_options.get("retry_delay", 1.0)
             
             last_error = None
@@ -455,7 +455,7 @@ class ScrapeService:
         return {
             "timeout": self.config_manager.get_setting("scrape.timeout", 30),
             "headless": self.config_manager.get_setting("scrape.headless", True),
-            "retry_count": self.config_manager.get_setting("scrape.retry_count", 3),
+            "retry_count": self.config_manager.get_setting("scrape.retry_count", 1),
             "retry_delay": self.config_manager.get_setting("scrape.retry_delay", 1.0),
             "cache_enabled": self.config_manager.get_setting("scrape.cache_enabled", True),
             "cache_ttl": self.config_manager.get_setting("scrape.cache_ttl", 3600),

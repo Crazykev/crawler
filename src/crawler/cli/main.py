@@ -34,7 +34,7 @@ def setup_cli_logging(verbose: int) -> None:
         3: "DEBUG"
     }
     
-    log_level = level_map.get(verbose, "INFO")
+    log_level = level_map.get(verbose, "WARNING")
     setup_logging(level=log_level)
 
 

@@ -130,7 +130,7 @@ class ScrapeOptions:
     
     # Processing options
     cache_enabled: bool = True
-    retry_count: int = 3
+    retry_count: int = 1
     
 @dataclass
 class ScrapeResult:
