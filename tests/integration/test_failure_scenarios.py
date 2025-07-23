@@ -231,7 +231,8 @@ class TestCascadingFailureScenarios:
                 # First scrape should succeed
                 result1 = await crawl_engine.scrape_single(
                     url="https://httpbin.org/get",
-                    session_id=session_id
+                    session_id=session_id,
+                    options={"cache_enabled": False}
                 )
                 assert result1["success"]
                 
@@ -239,14 +240,16 @@ class TestCascadingFailureScenarios:
                 with pytest.raises(Exception) as exc_info:
                     await crawl_engine.scrape_single(
                         url="https://httpbin.org/json",
-                        session_id=session_id
+                        session_id=session_id,
+                        options={"cache_enabled": False}
                     )
                 assert "crash" in str(exc_info.value).lower()
                 
                 # Third scrape should recover (session recreation)
                 result3 = await crawl_engine.scrape_single(
                     url="https://httpbin.org/uuid",
-                    session_id=session_id
+                    session_id=session_id,
+                    options={"cache_enabled": False}
                 )
                 # May succeed with session recovery or fail gracefully
                 # The important thing is no unhandled exceptions

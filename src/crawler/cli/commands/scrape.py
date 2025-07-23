@@ -190,7 +190,8 @@ def scrape(ctx, url, output, output_format, extract_strategy, css_selector,
         handle_error(e)
         if verbose > 0:
             console.print_exception()
-        raise click.ClickException(f"Scraping failed: {str(e)}")
+        console.print(f"[red]Error:[/red] {str(e)}")
+        ctx.exit(1)
 
 
 def _prepare_scrape_options(
@@ -357,7 +358,8 @@ def _handle_output(
     if not result.get("success"):
         error_msg = result.get("error", "Unknown error")
         console.print(f"[red]Scraping failed:[/red] {error_msg}")
-        raise click.ClickException(f"Scraping failed: {error_msg}")
+        from ...foundation.errors import ValidationError
+        raise ValidationError(f"Scraping failed: {error_msg}")
     
     # Format output based on type
     if output_format == "json":

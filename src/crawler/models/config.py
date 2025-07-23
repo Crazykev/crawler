@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from enum import Enum
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class LogLevel(str, Enum):
@@ -52,8 +52,7 @@ class ScrapeConfig(BaseModel):
     default_delay: float = Field(default=1.0, ge=0.0)
     max_concurrent: int = Field(default=5, ge=1, le=50)
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class CrawlConfig(BaseModel):
@@ -75,8 +74,7 @@ class CrawlConfig(BaseModel):
     default_include_patterns: List[str] = Field(default_factory=list)
     default_exclude_patterns: List[str] = Field(default_factory=list)
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class BrowserConfig(BaseModel):
@@ -102,8 +100,7 @@ class BrowserConfig(BaseModel):
     disable_javascript: bool = False
     disable_css: bool = False
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class StorageConfig(BaseModel):
@@ -127,8 +124,7 @@ class StorageConfig(BaseModel):
     storage_directory: str = "./storage"
     max_file_size: int = Field(default=100*1024*1024, ge=0, description="Max file size in bytes")
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class LoggingConfig(BaseModel):
@@ -153,8 +149,7 @@ class LoggingConfig(BaseModel):
     log_requests: bool = True
     log_responses: bool = False
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class MetricsConfig(BaseModel):
@@ -176,8 +171,7 @@ class MetricsConfig(BaseModel):
     # Monitoring
     alert_thresholds: Dict[str, float] = Field(default_factory=dict)
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class LLMConfig(BaseModel):
@@ -202,8 +196,7 @@ class LLMConfig(BaseModel):
     # Rate limiting
     requests_per_minute: int = Field(default=60, ge=1)
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class JobsConfig(BaseModel):
@@ -222,8 +215,7 @@ class JobsConfig(BaseModel):
     cleanup_interval: int = Field(default=3600, ge=300)
     retention_days: int = Field(default=7, ge=1, le=365)
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class SecurityConfig(BaseModel):
@@ -247,8 +239,7 @@ class SecurityConfig(BaseModel):
     max_request_size: int = Field(default=10*1024*1024, ge=0)
     sanitize_inputs: bool = True
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class APIConfig(BaseModel):
@@ -267,8 +258,7 @@ class APIConfig(BaseModel):
     # Timeouts
     request_timeout: int = Field(default=30, ge=1, le=300)
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class CrawlerConfiguration(BaseModel):

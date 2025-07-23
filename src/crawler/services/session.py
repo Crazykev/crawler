@@ -129,6 +129,7 @@ class SessionService:
         
         # Background cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None
+        self._should_cleanup = True  # Flag to control cleanup loop
         self._cleanup_interval = 300  # 5 minutes
     
     async def initialize(self) -> None:
@@ -153,18 +154,28 @@ class SessionService:
     async def shutdown(self) -> None:
         """Shutdown the session service and cleanup resources."""
         try:
-            # Cancel cleanup task
+            # Stop cleanup loop
+            self._should_cleanup = False
+            
+            # Cancel cleanup task gracefully
             if self._cleanup_task and not self._cleanup_task.done():
                 self._cleanup_task.cancel()
                 try:
-                    await self._cleanup_task
+                    await asyncio.wait_for(self._cleanup_task, timeout=2.0)
+                except asyncio.TimeoutError:
+                    self.logger.warning("Cleanup task did not finish within timeout")
                 except asyncio.CancelledError:
                     pass
+                except Exception as e:
+                    self.logger.error(f"Error waiting for cleanup task: {e}")
             
             # Close all active sessions
             session_ids = list(self._active_sessions.keys())
             for session_id in session_ids:
-                await self.close_session(session_id)
+                try:
+                    await self.close_session(session_id)
+                except Exception as e:
+                    self.logger.error(f"Error closing session {session_id}: {e}")
             
             self.logger.info("Session service shutdown completed")
         except Exception as e:
@@ -506,18 +517,28 @@ class SessionService:
         self.logger.info("Session cleanup loop started")
         
         try:
-            while True:
-                await asyncio.sleep(self._cleanup_interval)
-                
+            while self._should_cleanup:
                 try:
+                    await asyncio.sleep(self._cleanup_interval)
+                    
+                    if not self._should_cleanup:
+                        break
+                    
                     await self.cleanup_expired_sessions()
+                except asyncio.CancelledError:
+                    break
                 except Exception as e:
-                    self.logger.error(f"Error in session cleanup loop: {e}")
+                    if self._should_cleanup:  # Only log if we're still supposed to be running
+                        self.logger.error(f"Error in session cleanup loop: {e}")
+                    else:
+                        break
                 
         except asyncio.CancelledError:
             self.logger.info("Session cleanup loop cancelled")
         except Exception as e:
             self.logger.error(f"Session cleanup loop error: {e}")
+        finally:
+            self.logger.info("Session cleanup loop finished")
 
 
 # Global session service instance
@@ -530,3 +551,15 @@ def get_session_service() -> SessionService:
     if _session_service is None:
         _session_service = SessionService()
     return _session_service
+
+
+def reset_session_service():
+    """Reset the global session service instance for testing."""
+    global _session_service
+    if _session_service is not None:
+        # Stop the cleanup loop
+        _session_service._should_cleanup = False
+        # Cancel the cleanup task if it exists
+        if hasattr(_session_service, '_cleanup_task') and _session_service._cleanup_task:
+            _session_service._cleanup_task.cancel()
+    _session_service = None

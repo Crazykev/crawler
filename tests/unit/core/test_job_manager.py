@@ -268,6 +268,22 @@ class TestJobManagerCore:
         # Process jobs concurrently
         await job_manager.process_pending_jobs(max_concurrent=3)
         
+        # Wait for all jobs to complete (poll for completion)
+        import asyncio
+        async def wait_for_completion():
+            for _ in range(30):  # Wait up to 3 seconds
+                all_completed = True
+                for job_id in job_ids:
+                    job_status = await job_manager.get_job_status(job_id)
+                    if job_status.status not in [JobStatus.COMPLETED, JobStatus.FAILED]:
+                        all_completed = False
+                        break
+                if all_completed:
+                    break
+                await asyncio.sleep(0.1)
+        
+        await wait_for_completion()
+        
         # Verify all jobs completed
         for job_id in job_ids:
             job_status = await job_manager.get_job_status(job_id)
@@ -410,6 +426,7 @@ class TestJobManagerErrorHandling:
 class TestJobManagerIntegration:
     """Integration tests for job manager with other components."""
     
+    @pytest.mark.asyncio
     async def test_scrape_service_job_integration(self):
         """Test job manager integration with scrape service - Phase 1 integration."""
         job_manager = JobManager()

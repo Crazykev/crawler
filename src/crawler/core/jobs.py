@@ -313,6 +313,21 @@ class JobManager:
                 handle_error(ResourceError(error_msg, resource_type="database"))
                 raise
     
+    async def submit_scrape_job(self, job_data: Dict[str, Any]) -> str:
+        """Submit a scrape job (convenience method for compatibility).
+        
+        Args:
+            job_data: Job data/parameters
+            
+        Returns:
+            Job ID
+        """
+        return await self.submit_job(
+            job_type=JobType.SCRAPE_SINGLE,
+            job_data=job_data,
+            priority=0
+        )
+    
     async def get_job_status(self, job_id: str) -> Optional[JobStatusInfo]:
         """Get the status of a job.
         

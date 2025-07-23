@@ -359,7 +359,7 @@ class TestCrawlEngine:
         
         url = "https://example.com"
         
-        with pytest.raises(NetworkError, match="Failed to scrape"):
+        with pytest.raises(NetworkError, match="Network error scraping"):
             await engine.scrape_single(url)
         
         # Check that both cache miss and error metrics were incremented

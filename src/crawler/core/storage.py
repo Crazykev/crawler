@@ -3,6 +3,7 @@
 import json
 import hashlib
 import sqlite3
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
@@ -41,6 +42,10 @@ class StorageManager:
         self.logger = get_logger(__name__)
         self.config_manager = get_config_manager()
         self.metrics = get_metrics_collector()
+        
+        # Concurrency control
+        self._write_lock = asyncio.Lock()
+        self._cache_locks = {}  # Per-key locks for cache operations
         
         # Set custom database path if provided
         if db_path:
@@ -427,48 +432,60 @@ class StorageManager:
         """
         cache_key = self._generate_cache_key(url, options)
         
-        with timer("storage.get_cached_result"):
-            try:
-                async with self.db_manager.get_session() as session:
-                    stmt = select(CacheEntry).where(CacheEntry.cache_key == cache_key)
-                    result = await session.execute(stmt)
-                    cache_entry = result.scalar_one_or_none()
-                    
-                    if not cache_entry:
-                        self.metrics.increment_counter("storage.cache.misses")
-                        return None
-                    
-                    # Check if expired manually to avoid greenlet issues
-                    current_time = datetime.utcnow()
-                    is_expired = False
-                    if cache_entry.expires_at is not None:
-                        is_expired = current_time > cache_entry.expires_at
-                    
-                    if is_expired:
-                        # Delete expired entry
-                        await session.delete(cache_entry)
+        # Use per-key locking to prevent race conditions
+        if cache_key not in self._cache_locks:
+            self._cache_locks[cache_key] = asyncio.Lock()
+        
+        async with self._cache_locks[cache_key]:
+            with timer("storage.get_cached_result"):
+                try:
+                    async with self.db_manager.get_session() as session:
+                        stmt = select(CacheEntry).where(CacheEntry.cache_key == cache_key)
+                        result = await session.execute(stmt)
+                        cache_entry = result.scalar_one_or_none()
+                        
+                        if not cache_entry:
+                            self.metrics.increment_counter("storage.cache.misses")
+                            return None
+                        
+                        # Check if expired manually to avoid greenlet issues
+                        current_time = datetime.utcnow()
+                        is_expired = False
+                        if cache_entry.expires_at is not None:
+                            is_expired = current_time > cache_entry.expires_at
+                        
+                        if is_expired:
+                            # Delete expired entry
+                            await session.delete(cache_entry)
+                            await session.commit()
+                            self.metrics.increment_counter("storage.cache.expired")
+                            return None
+                        
+                        # Update access statistics manually
+                        cache_entry.access_count += 1
+                        cache_entry.last_accessed = current_time
                         await session.commit()
-                        self.metrics.increment_counter("storage.cache.expired")
-                        return None
-                    
-                    # Update access statistics manually
-                    cache_entry.access_count += 1
-                    cache_entry.last_accessed = current_time
-                    await session.commit()
-                    
-                    self.metrics.increment_counter("storage.cache.hits")
-                    return cache_entry.data_value
-                    
-            except Exception as e:
-                self.metrics.increment_counter("storage.cache.errors")
-                self.logger.error(f"Failed to get cached result for {url}: {e}")
-                return None
+                        
+                        self.metrics.increment_counter("storage.cache.hits")
+                        return cache_entry.data_value
+                        
+                except Exception as e:
+                    self.metrics.increment_counter("storage.cache.errors")
+                    self.logger.error(f"Failed to get cached result for {url}: {e}")
+                    return None
     
     
     # Alias for backward compatibility  
-    async def store_cached_result(self, url: str, data: Dict[str, Any], options: Optional[Dict[str, Any]] = None, cache_ttl: Optional[int] = None):
+    async def store_cached_result(self, url: str, data: Dict[str, Any], options: Optional[Dict[str, Any]] = None, cache_ttl: Optional[int] = None, ttl: Optional[int] = None):
         """Store cached result with proper parameter handling."""
-        return await self.store_cache(url, data, ttl=cache_ttl, options=options)
+        # Use ttl parameter if provided, otherwise use cache_ttl
+        effective_ttl = ttl if ttl is not None else cache_ttl
+        
+        # Generate cache key same way as get_cached_result for consistency
+        cache_key = self._generate_cache_key(url, options)
+        
+        # Call store_cache directly with the generated key (locking happens there)
+        return await self.store_cache(cache_key, data, ttl=effective_ttl)
     
     # Test-compatible cache methods
     async def store_cache(
@@ -509,75 +526,85 @@ class StorageManager:
         
         expires_at = datetime.utcnow() + timedelta(seconds=ttl_to_use)
         
-        with timer("storage.store_cache"):
-            try:
-                async with self.db_manager.get_session() as session:
-                    # Check if entry already exists
-                    stmt = select(CacheEntry).where(CacheEntry.cache_key == cache_key)
-                    result = await session.execute(stmt)
-                    cache_entry = result.scalar_one_or_none()
+        # Get or create a lock for this cache key
+        if cache_key not in self._cache_locks:
+            self._cache_locks[cache_key] = asyncio.Lock()
+        
+        async with self._cache_locks[cache_key]:
+            with timer("storage.store_cache"):
+                try:
+                    async with self.db_manager.get_session() as session:
+                        # Check if entry already exists
+                        stmt = select(CacheEntry).where(CacheEntry.cache_key == cache_key)
+                        result = await session.execute(stmt)
+                        cache_entry = result.scalar_one_or_none()
                     
-                    # Serialize datetime objects in cache data
-                    serialized_data = _serialize_datetime(cache_data)
-                    
-                    if cache_entry:
-                        # Update existing entry
-                        cache_entry.data_value = serialized_data
-                        cache_entry.expires_at = expires_at
-                        cache_entry.last_accessed = datetime.utcnow()
-                    else:
-                        # Create new entry
-                        cache_entry = CacheEntry(
-                            cache_key=cache_key,
-                            data_value=serialized_data,
-                            data_type="json",
-                            expires_at=expires_at,
-                            last_accessed=datetime.utcnow()
-                        )
-                        session.add(cache_entry)
-                    
-                    await session.commit()
-                    self.metrics.increment_counter("storage.cache.stored")
-                    return True
-                    
-            except Exception as e:
-                self.metrics.increment_counter("storage.cache.errors")
-                self.logger.error(f"Failed to store cache: {e}")
-                return False
+                        # Serialize datetime objects in cache data
+                        serialized_data = _serialize_datetime(cache_data)
+                        
+                        if cache_entry:
+                            # Update existing entry
+                            cache_entry.data_value = serialized_data
+                            cache_entry.expires_at = expires_at
+                            cache_entry.last_accessed = datetime.utcnow()
+                        else:
+                            # Create new entry
+                            cache_entry = CacheEntry(
+                                cache_key=cache_key,
+                                data_value=serialized_data,
+                                data_type="json",
+                                expires_at=expires_at,
+                                last_accessed=datetime.utcnow()
+                            )
+                            session.add(cache_entry)
+                        
+                        await session.commit()
+                        self.metrics.increment_counter("storage.cache.stored")
+                        return True
+                        
+                except Exception as e:
+                    self.metrics.increment_counter("storage.cache.errors")
+                    self.logger.error(f"Failed to store cache: {e}")
+                    return False
     
     async def get_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """Get cached data by cache key - test compatibility method."""
-        with timer("storage.get_cache"):
-            try:
-                async with self.db_manager.get_session() as session:
-                    stmt = select(CacheEntry).where(CacheEntry.cache_key == cache_key)
-                    result = await session.execute(stmt)
-                    cache_entry = result.scalar_one_or_none()
+        # Get or create a lock for this cache key
+        if cache_key not in self._cache_locks:
+            self._cache_locks[cache_key] = asyncio.Lock()
+        
+        async with self._cache_locks[cache_key]:
+            with timer("storage.get_cache"):
+                try:
+                    async with self.db_manager.get_session() as session:
+                        stmt = select(CacheEntry).where(CacheEntry.cache_key == cache_key)
+                        result = await session.execute(stmt)
+                        cache_entry = result.scalar_one_or_none()
                     
-                    if not cache_entry:
-                        return None
-                    
-                    # Check if expired manually to avoid greenlet issues
-                    current_time = datetime.utcnow()
-                    is_expired = False
-                    if cache_entry.expires_at is not None:
-                        is_expired = current_time > cache_entry.expires_at
-                    
-                    if is_expired:
-                        await session.delete(cache_entry)
+                        if not cache_entry:
+                            return None
+                        
+                        # Check if expired manually to avoid greenlet issues
+                        current_time = datetime.utcnow()
+                        is_expired = False
+                        if cache_entry.expires_at is not None:
+                            is_expired = current_time > cache_entry.expires_at
+                        
+                        if is_expired:
+                            await session.delete(cache_entry)
+                            await session.commit()
+                            return None
+                        
+                        # Update access statistics manually
+                        cache_entry.access_count += 1
+                        cache_entry.last_accessed = current_time
                         await session.commit()
-                        return None
-                    
-                    # Update access statistics manually
-                    cache_entry.access_count += 1
-                    cache_entry.last_accessed = current_time
-                    await session.commit()
-                    
-                    return cache_entry.data_value
-                    
-            except Exception as e:
-                self.logger.error(f"Failed to get cache for key {cache_key}: {e}")
-                return None
+                        
+                        return cache_entry.data_value
+                        
+                except Exception as e:
+                    self.logger.error(f"Failed to get cache for key {cache_key}: {e}")
+                    return None
     
     async def cleanup_expired_cache(self) -> int:
         """Clean up expired cache entries.
@@ -1079,6 +1106,122 @@ class StorageManager:
             except Exception as e:
                 self.logger.error(f"Failed to get storage stats: {e}")
                 return {"error": str(e)}
+    
+    async def store_performance_metric(
+        self, 
+        metric_name: str, 
+        value: float, 
+        tags: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Store a performance metric."""
+        if tags is None:
+            tags = {}
+        
+        # For now, just log the metric - in a real system this would go to a metrics DB
+        self.logger.info(f"Performance metric: {metric_name}={value} tags={tags}")
+        
+        # Store in cache for tests to retrieve
+        cache_key = f"perf_metric_{metric_name}"
+        metrics_list = await self.get_cached_result(cache_key) or []
+        
+        metric_entry = {
+            "value": value,
+            "tags": tags,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        metrics_list.append(metric_entry)
+        
+        # Keep only last 100 metrics
+        if len(metrics_list) > 100:
+            metrics_list = metrics_list[-100:]
+        
+        await self.store_cached_result(cache_key, metrics_list, cache_ttl=86400)  # 24 hours
+    
+    async def get_performance_metrics(
+        self, 
+        metric_name: str, 
+        tags: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Get performance metrics by name and optional tags."""
+        cache_key = f"perf_metric_{metric_name}"
+        metrics_list = await self.get_cached_result(cache_key) or []
+        
+        if tags:
+            # Filter by tags
+            filtered_metrics = []
+            for metric in metrics_list:
+                metric_tags = metric.get("tags", {})
+                if all(metric_tags.get(k) == v for k, v in tags.items()):
+                    filtered_metrics.append(metric)
+            return filtered_metrics
+        
+        return metrics_list
+    
+    async def store_scrape_results_batch(self, results_data: List[Dict[str, Any]]) -> List[str]:
+        """Store multiple scrape results in a batch operation."""
+        if not results_data:
+            return []
+        
+        result_ids = []
+        
+        async with self.db_manager.get_session() as session:
+            try:
+                # Prepare batch data for bulk insert
+                batch_data = []
+                for result_data in results_data:
+                    batch_data.append({
+                        "url": result_data["url"],
+                        "title": result_data.get("title", ""),
+                        "success": result_data.get("success", True),
+                        "status_code": result_data.get("status_code", 200),
+                        "content_markdown": result_data.get("content_markdown", ""),
+                        "content_html": result_data.get("content_html", ""),
+                        "content_text": result_data.get("content_text", ""),
+                        "extracted_data": json.dumps(result_data.get("extracted_data", {})),
+                        "metadata": json.dumps(result_data.get("metadata", {})),
+                        "created_at": result_data.get("created_at", datetime.utcnow())
+                    })
+                
+                # Use bulk insert for better performance
+                from sqlalchemy import insert
+                result = await session.execute(
+                    insert(CrawlResult).returning(CrawlResult.id),
+                    batch_data
+                )
+                
+                # Get all inserted IDs
+                result_ids = [str(row.id) for row in result.fetchall()]
+                
+                await session.commit()
+                self.logger.debug(f"Stored {len(results_data)} results in batch")
+                
+                return result_ids
+                
+            except Exception as e:
+                await session.rollback()
+                self.logger.error(f"Failed to store batch results: {e}")
+                raise ResourceError(f"Batch storage failed: {e}")
+    
+    async def clear_all_results(self) -> None:
+        """Clear all stored results (for testing)."""
+        async with self.db_manager.get_session() as session:
+            try:
+                # Delete all crawl results
+                await session.execute(delete(CrawlResult))
+                await session.execute(delete(CrawlLink))
+                await session.execute(delete(CrawlMedia))
+                await session.commit()
+                
+                self.logger.debug("Cleared all stored results")
+                
+            except Exception as e:
+                await session.rollback()
+                self.logger.error(f"Failed to clear results: {e}")
+                raise ResourceError(f"Clear operation failed: {e}")
+    
+    def get_connection(self):
+        """Get database connection as async context manager."""
+        return self.db_manager.get_session()
 
 
 # Global storage manager instance

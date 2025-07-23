@@ -145,20 +145,29 @@ class TestNetworkEdgeCases:
             assert "timeout" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_read_timeout_scenarios(self, crawl_engine):
+    async def test_read_timeout_scenarios(self, crawl_engine, mock_crawl4ai):
         """Test read timeout during data transfer."""
         
-        with patch('crawl4ai.AsyncWebCrawler.arun') as mock_crawl:
-            # Simulate a timeout error during crawling
-            mock_crawl.side_effect = asyncio.TimeoutError("Connection timeout")
-            
-            with pytest.raises(TimeoutError) as exc_info:
-                await crawl_engine.scrape_single(
-                    url="https://httpbin.org/delay/10",
-                    options={"timeout": 2}
-                )
-            
-            assert "timeout" in str(exc_info.value).lower()
+        # Test read timeout
+        # Configure the mock constructor to return a crawler that raises timeout
+        def timeout_mock_constructor(**kwargs):
+            from unittest.mock import AsyncMock
+            mock_crawler = AsyncMock()
+            mock_crawler.arun.side_effect = asyncio.TimeoutError("Connection timeout")
+            return mock_crawler
+        
+        mock_crawl4ai.side_effect = timeout_mock_constructor
+        
+        try:
+            await crawl_engine.scrape_single(
+                url="https://httpbin.org/delay/10",
+                options={"timeout": 2, "retry_count": 1}
+            )
+            assert False, "Expected TimeoutError but no exception was raised"
+        except TimeoutError as e:
+            assert "timeout" in str(e).lower()
+        except Exception as e:
+            assert False, f"Expected TimeoutError but got {type(e).__name__}: {e}"
 
     @pytest.mark.asyncio
     async def test_redirect_chain_limits(self, crawl_engine):

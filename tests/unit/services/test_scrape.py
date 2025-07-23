@@ -12,13 +12,24 @@ class TestScrapeService:
     """Test suite for ScrapeService."""
     
     @pytest.mark.asyncio
-    async def test_initialize(self, scrape_service_factory, mock_storage_manager):
+    async def test_initialize(self, scrape_service_factory, mock_storage_manager, temp_dir):
         """Test service initialization."""
         # Create service from factory with mock storage manager
         scrape_service = scrape_service_factory(storage_manager=mock_storage_manager)
         
         # Mock the initialize method to avoid async generator issues
         mock_storage_manager.initialize = AsyncMock()
+        
+        # Mock the crawl engine initialize method as well
+        scrape_service.crawl_engine.initialize = AsyncMock()
+        
+        # Mock the job manager initialize method
+        scrape_service.job_manager.initialize = AsyncMock()
+        scrape_service.job_manager.register_handler = Mock()  # Not async
+        
+        # Use a temporary database to avoid conflicts
+        if hasattr(mock_storage_manager, 'db_path'):
+            mock_storage_manager.db_path = str(temp_dir / "test_scrape.db")
         
         await scrape_service.initialize()
         

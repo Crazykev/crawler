@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator, HttpUrl
+from pydantic import BaseModel, Field, field_validator, HttpUrl, ConfigDict
 from .scrape import ScrapeOptions, ExtractionStrategyConfig, OutputFormat, ScrapeResult
 
 
@@ -61,8 +61,7 @@ class CrawlRules(BaseModel):
     max_redirects: int = Field(default=5, ge=0, le=20)
     extract_robots_sitemap: bool = True
     
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class CrawlSeed(BaseModel):

@@ -19,6 +19,8 @@ class BrowserConfig(BaseModel):
     proxy_url: Optional[str] = None
     proxy_username: Optional[str] = None
     proxy_password: Optional[str] = None
+    
+    model_config = ConfigDict(extra="allow")
 
 
 class ScrapeConfig(BaseModel):
@@ -29,6 +31,8 @@ class ScrapeConfig(BaseModel):
     cache_enabled: bool = True
     cache_ttl: int = 3600
     headless: bool = True
+    
+    model_config = ConfigDict(extra="allow")
 
 
 class CrawlConfig(BaseModel):
@@ -41,6 +45,8 @@ class CrawlConfig(BaseModel):
     respect_robots: bool = True
     allow_external_links: bool = False
     allow_subdomains: bool = True
+    
+    model_config = ConfigDict(extra="allow")
 
 
 class LLMConfig(BaseModel):
@@ -52,6 +58,8 @@ class LLMConfig(BaseModel):
     anthropic_model: str = "claude-3-haiku-20240307"
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-1.5-flash"
+    
+    model_config = ConfigDict(extra="allow")
 
 
 class StorageConfig(BaseModel):
@@ -66,6 +74,8 @@ class StorageConfig(BaseModel):
     sqlite_wal_mode: bool = True
     sqlite_cache_size: int = 10000
     sqlite_synchronous: str = "NORMAL"
+    
+    model_config = ConfigDict(extra="allow")
 
 
 class OutputConfig(BaseModel):
@@ -74,6 +84,8 @@ class OutputConfig(BaseModel):
     templates_dir: str = "~/.crawler/templates"
     create_index: bool = True
     compress_results: bool = False
+    
+    model_config = ConfigDict(extra="allow")
 
 
 class GlobalConfig(BaseModel):
@@ -83,6 +95,8 @@ class GlobalConfig(BaseModel):
     max_workers: int = 10
     api_port: int = 8000
     api_host: str = "localhost"
+    
+    model_config = ConfigDict(extra="allow")
 
 
 class CrawlerConfig(BaseSettings):

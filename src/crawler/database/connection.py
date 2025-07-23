@@ -36,6 +36,10 @@ class DatabaseManager:
             "~/.crawler/crawler.db"
         )
         
+        # Handle in-memory database for tests
+        if db_path == ":memory:":
+            return "sqlite+aiosqlite:///:memory:"
+        
         # Expand user path and ensure directory exists
         db_path = Path(db_path).expanduser().resolve()
         
@@ -54,7 +58,8 @@ class DatabaseManager:
             # Configure SQLite for optimal performance with WAL mode
             connect_args = {
                 "check_same_thread": False,
-                "timeout": 30,
+                "timeout": 60,  # Increased timeout for lock handling
+                "isolation_level": None,  # Autocommit mode to reduce lock contention
             }
             
             self._engine = create_async_engine(
@@ -78,6 +83,10 @@ class DatabaseManager:
                 cursor.execute("PRAGMA temp_store=MEMORY")
                 cursor.execute("PRAGMA mmap_size=268435456")  # 256MB
                 cursor.execute("PRAGMA foreign_keys=ON")
+                # Reduce lock contention
+                cursor.execute("PRAGMA busy_timeout=30000")  # 30 seconds
+                cursor.execute("PRAGMA wal_autocheckpoint=1000")
+                cursor.execute("PRAGMA optimize")
                 cursor.close()
             
             logger.info(f"Created database engine with WAL mode: {self.database_url}")
@@ -101,10 +110,21 @@ class DatabaseManager:
         try:
             yield session
         except Exception:
-            await session.rollback()
+            try:
+                await session.rollback()
+            except Exception as rollback_error:
+                logger.warning(f"Failed to rollback session: {rollback_error}")
             raise
         else:
-            await session.commit()
+            try:
+                await session.commit()
+            except Exception as commit_error:
+                logger.warning(f"Failed to commit session: {commit_error}")
+                try:
+                    await session.rollback()
+                except Exception as rollback_error:
+                    logger.warning(f"Failed to rollback after commit error: {rollback_error}")
+                raise
         finally:
             try:
                 await session.close()
@@ -145,6 +165,12 @@ class DatabaseManager:
             await self._engine.dispose()
             self._engine = None
             logger.info("Database engine closed")
+    
+    async def shutdown(self) -> None:
+        """Shutdown the database manager and clean up resources."""
+        await self.close()
+        self._session_factory = None
+        logger.info("Database manager shutdown complete")
     
     async def setup_database(self) -> None:
         """Set up database with WAL mode and optimizations."""
@@ -210,6 +236,14 @@ def get_database_manager() -> DatabaseManager:
     if _db_manager is None:
         _db_manager = DatabaseManager()
     return _db_manager
+
+
+async def shutdown_database_manager() -> None:
+    """Shutdown the global database manager."""
+    global _db_manager
+    if _db_manager is not None:
+        await _db_manager.shutdown()
+        _db_manager = None
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
