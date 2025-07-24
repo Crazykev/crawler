@@ -1,5 +1,11 @@
 # Firecrawl-Compatible API Design
 
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2025-07-03 | Initial Firecrawl compatibility layer design with complete endpoint mapping |
+
 ## Overview
 
 The Firecrawl-compatible API layer provides 100% compatibility with the Firecrawl API specification, allowing existing Firecrawl users to migrate seamlessly to our system. This layer acts as an adapter between the Firecrawl API format and our internal crawler system.

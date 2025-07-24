@@ -1,5 +1,11 @@
 # Crawler System - Complete Architecture Documentation
 
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2025-07-23 | Initial architecture documentation with comprehensive system design |
+
 ## Overview
 
 The Crawler System is a comprehensive web scraping and crawling solution built on top of the powerful crawl4ai library. It provides three distinct interaction methods while maintaining a unified core architecture that leverages all crawl4ai capabilities for maximum flexibility and functionality.

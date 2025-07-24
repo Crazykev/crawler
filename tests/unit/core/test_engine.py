@@ -556,9 +556,10 @@ class TestCrawlEngine:
         engine.logger = Mock()
         
         mock_result = Mock()
-        # Create a mock that raises an exception when accessed
+        # Create a mock that raises an exception when .get() is called (new dict-based structure)
         mock_result.links = Mock()
-        mock_result.links.__iter__ = Mock(side_effect=Exception("Test exception"))
+        mock_result.links.__class__ = dict  # Make isinstance(links, dict) return True
+        mock_result.links.get = Mock(side_effect=Exception("Test exception"))
         
         links = engine._extract_links(mock_result)
         

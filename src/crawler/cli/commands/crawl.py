@@ -506,12 +506,10 @@ def _handle_crawl_output(
                 content = json.dumps(page_result, indent=2, default=str)
                 ext = "json"
             else:
-                # Extract the appropriate content field based on format
+                # Extract the appropriate content field based on format - handle both database and service result formats
                 content_data = page_result.get("content", {})
-                # Handle case where content might be a string instead of dict (error scenarios)
-                if isinstance(content_data, str):
-                    content = content_data
-                elif isinstance(content_data, dict):
+                if isinstance(content_data, dict) and content_data:
+                    # Service result format with nested content
                     if output_format == "markdown":
                         content = content_data.get("markdown", "")
                     elif output_format == "html":
@@ -521,7 +519,24 @@ def _handle_crawl_output(
                     else:
                         # Default to markdown for backward compatibility
                         content = content_data.get("markdown", "") or content_data.get("text", "")
+                elif isinstance(content_data, str):
+                    # Simple string content
+                    content = content_data
                 else:
+                    # Database result format with separate content fields
+                    if output_format == "markdown":
+                        content = page_result.get("content_markdown", "")
+                    elif output_format == "html":  
+                        content = page_result.get("content_html", "")
+                    elif output_format == "text":
+                        content = page_result.get("content_text", "")
+                    else:
+                        # Default to markdown for backward compatibility
+                        content = (page_result.get("content_markdown", "") or 
+                                  page_result.get("content_text", "") or "")
+                
+                # Handle empty content
+                if not content:
                     content = ""
                 ext = "md" if output_format == "markdown" else output_format
             
@@ -552,18 +567,27 @@ def _handle_crawl_output(
             console.print("\n[bold]First 3 results:[/bold]")
             for i, page_result in enumerate(results[:3]):
                 console.print(f"\n[cyan]Page {i+1}:[/cyan] {page_result.get('url', 'Unknown')}")
-                # Extract the appropriate content field
+                # Extract the appropriate content field - handle both database and service result formats
                 content_data = page_result.get("content", {})
-                # Handle case where content might be a string instead of dict (error scenarios)
-                if isinstance(content_data, str):
+                if isinstance(content_data, dict) and content_data:
+                    # Service result format with nested content
+                    content = content_data.get("markdown", "") or content_data.get("text", "") 
+                elif isinstance(content_data, str):
+                    # Simple string content
                     content = content_data
-                elif isinstance(content_data, dict):
-                    content = content_data.get("markdown", "") or content_data.get("text", "")
                 else:
-                    content = ""
-                if len(content) > 200:
-                    content = content[:200] + "..."
-                console.print(content)
+                    # Database result format with separate content fields
+                    content = (page_result.get("content_markdown", "") or 
+                              page_result.get("content_text", "") or 
+                              page_result.get("content_html", "") or "")
+                
+                # Show preview of content
+                if content:
+                    if len(content) > 200:
+                        content = content[:200] + "..."
+                    console.print(content)
+                else:
+                    console.print("[dim]No content available[/dim]")
 
 
 def _show_crawl_summary(status: Dict[str, Any], results_count: int) -> None:

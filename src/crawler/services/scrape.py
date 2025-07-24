@@ -136,7 +136,9 @@ class ScrapeService:
                     
                     # Store result if requested
                     if store_result:
-                        await self._store_scrape_result(formatted_result)
+                        # Extract job_id from options if provided
+                        job_id = scrape_options.get("job_id")
+                        await self._store_scrape_result(formatted_result, job_id)
                     
                     # Update metrics
                     self.metrics.increment_counter("scrape_service.scrapes.completed")
@@ -325,7 +327,9 @@ class ScrapeService:
                         
                         # Store result if requested and successful
                         if store_results and formatted_result.get("success"):
-                            await self._store_scrape_result(formatted_result)
+                            # Extract job_id from options if provided
+                            job_id = scrape_options.get("job_id")
+                            await self._store_scrape_result(formatted_result, job_id)
                             
                     except Exception as e:
                         self.logger.error(f"Failed to format result for {result.get('url', 'unknown')}: {e}")
@@ -523,11 +527,12 @@ class ScrapeService:
             
         return options
     
-    async def _store_scrape_result(self, result: Dict[str, Any]) -> Optional[str]:
+    async def _store_scrape_result(self, result: Dict[str, Any], job_id: Optional[str] = None) -> Optional[str]:
         """Store scraping result in database.
         
         Args:
             result: Scraping result to store
+            job_id: Optional job ID to associate with the result
             
         Returns:
             Result ID if stored successfully
@@ -575,7 +580,8 @@ class ScrapeService:
                 success=result.get("success", False),
                 status_code=result.get("status_code"),
                 links=result.get("links"),
-                media=result.get("images")  # Map images to media
+                media=result.get("images"),  # Map images to media
+                job_id=job_id  # Pass the job_id for grouping results
             )
             
             self.metrics.increment_counter("scrape_service.results.stored")

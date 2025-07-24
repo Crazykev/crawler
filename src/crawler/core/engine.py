@@ -364,6 +364,49 @@ class ExecutionLayer:
 class ProcessingLayer:
     """Processes crawl results."""
     
+    def _extract_links_from_result(self, raw_result) -> List[Dict[str, Any]]:
+        """Extract links from raw crawl result and handle crawl4ai's dictionary structure."""
+        links = []
+        
+        try:
+            if hasattr(raw_result, 'links') and raw_result.links:
+                # Handle crawl4ai's dictionary structure: {'internal': [...], 'external': [...]}
+                if isinstance(raw_result.links, dict):
+                    # Process internal links
+                    internal_links = raw_result.links.get('internal', [])
+                    for link in internal_links:
+                        if isinstance(link, dict):
+                            links.append({
+                                "url": link.get("href", ""),
+                                "text": link.get("text", ""),
+                                "type": "internal"
+                            })
+                    
+                    # Process external links
+                    external_links = raw_result.links.get('external', [])
+                    for link in external_links:
+                        if isinstance(link, dict):
+                            links.append({
+                                "url": link.get("href", ""),
+                                "text": link.get("text", ""),
+                                "type": "external"
+                            })
+                
+                # Handle older format where links might be a list
+                elif isinstance(raw_result.links, list):
+                    for link in raw_result.links:
+                        if isinstance(link, dict):
+                            links.append({
+                                "url": link.get("href", ""),
+                                "text": link.get("text", ""),
+                                "type": "unknown"
+                            })
+        except Exception:
+            # If link extraction fails, return empty list
+            pass
+        
+        return links
+    
     def _safe_decode_content(self, content: str) -> str:
         """Safely decode content handling various encodings."""
         if not content:
@@ -395,6 +438,7 @@ class ProcessingLayer:
     
     def process(self, raw_result: Any, url: str) -> Dict[str, Any]:
         """Process raw crawl result."""
+        print(f"DEBUG ProcessingLayer.process called for URL: {url}")
         if not raw_result or not hasattr(raw_result, 'success'):
             return {
                 "success": False,
@@ -429,7 +473,7 @@ class ProcessingLayer:
             "metadata": {
                 "status_code": getattr(raw_result, 'status_code', 200),
                 "response_headers": getattr(raw_result, 'response_headers', {}),
-                "links": getattr(raw_result, 'links', []),
+                "links": self._extract_links_from_result(raw_result),
                 "media": getattr(raw_result, 'media', []),
                 "extracted_metadata": getattr(raw_result, 'metadata', {})
             },
@@ -1067,19 +1111,55 @@ class CrawlEngine:
         
         try:
             if hasattr(crawl_result, 'links') and crawl_result.links:
-                for link in crawl_result.links:
-                    if isinstance(link, dict):
-                        links.append({
-                            "url": link.get("href", ""),
-                            "text": link.get("text", ""),
-                            "type": self._classify_link_type(link.get("href", ""), getattr(crawl_result, 'url', ""))
-                        })
-                    elif isinstance(link, str):
-                        links.append({
-                            "url": link,
-                            "text": "",
-                            "type": self._classify_link_type(link, getattr(crawl_result, 'url', ""))
-                        })
+                # Handle crawl4ai's dictionary structure: {'internal': [...], 'external': [...]}
+                if isinstance(crawl_result.links, dict):
+                    # Process internal links
+                    internal_links = crawl_result.links.get('internal', [])
+                    for link in internal_links:
+                        if isinstance(link, dict):
+                            links.append({
+                                "url": link.get("href", ""),
+                                "text": link.get("text", ""),
+                                "type": "internal"
+                            })
+                        elif isinstance(link, str):
+                            links.append({
+                                "url": link,
+                                "text": "",
+                                "type": "internal"
+                            })
+                    
+                    # Process external links
+                    external_links = crawl_result.links.get('external', [])
+                    for link in external_links:
+                        if isinstance(link, dict):
+                            links.append({
+                                "url": link.get("href", ""),
+                                "text": link.get("text", ""),
+                                "type": "external"
+                            })
+                        elif isinstance(link, str):
+                            links.append({
+                                "url": link,
+                                "text": "",
+                                "type": "external"
+                            })
+                
+                # Handle older format where links might be a list
+                elif isinstance(crawl_result.links, list):
+                    for link in crawl_result.links:
+                        if isinstance(link, dict):
+                            links.append({
+                                "url": link.get("href", ""),
+                                "text": link.get("text", ""),
+                                "type": self._classify_link_type(link.get("href", ""), getattr(crawl_result, 'url', ""))
+                            })
+                        elif isinstance(link, str):
+                            links.append({
+                                "url": link,
+                                "text": "",
+                                "type": self._classify_link_type(link, getattr(crawl_result, 'url', ""))
+                            })
             
         except Exception as e:
             self.logger.warning(f"Failed to extract links: {e}")

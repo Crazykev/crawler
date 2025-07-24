@@ -516,8 +516,10 @@ class CrawlService:
         discovered_urls = []
         
         try:
-            # Get links from result
+            # Get links from result - check both top level and metadata
             links = result.get("links", [])
+            if not links and "metadata" in result:
+                links = result["metadata"].get("links", [])
             
             for link in links:
                 link_url = link.get("url", "")

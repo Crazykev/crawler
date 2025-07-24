@@ -1,5 +1,11 @@
 # Native REST API Design
 
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2025-07-23 | Initial native REST API design with comprehensive RESTful endpoints |
+
 ## Overview
 
 The Native REST API provides a comprehensive RESTful interface for the Crawler system. It follows REST principles with clear resource hierarchy, proper HTTP methods, and consistent response formats. The API supports all crawl4ai capabilities while maintaining the distinction between scraping (single page) and crawling (multiple pages).

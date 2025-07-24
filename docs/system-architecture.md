@@ -1,5 +1,11 @@
 # Crawler System Architecture
 
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2025-07-03 | Initial system architecture design with layered architecture and SQLite storage |
+
 ## Overview
 
 The Crawler system is a comprehensive web scraping and crawling solution built on top of the crawl4ai library. It provides three distinct interaction methods while maintaining a unified core architecture that leverages all crawl4ai capabilities.

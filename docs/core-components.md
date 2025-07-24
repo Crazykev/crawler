@@ -1,5 +1,11 @@
 # Core Components Design
 
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2025-07-23 | Initial core components design with service layer architecture |
+
 ## Overview
 
 This document details the design of the core components that form the foundation of the Crawler system. These components provide the essential services and abstractions needed to support all three interface layers while maintaining clean separation of concerns.
@@ -199,6 +205,18 @@ class CrawlService:
         """Process a single page within a crawl job."""
         pass
 ```
+
+#### Expected Behavior
+
+The CrawlService should provide:
+
+1. **Crawl Orchestration**: Complete crawl lifecycle management including status tracking, progress monitoring, and result collection
+2. **Content Structure**: Results with nested content format as `{"content": {"markdown": "...", "html": "...", "text": "...", "extracted_data": ...}}`
+3. **Output Handling**: Support for multiple output formats with defensive programming for content extraction
+4. **File Generation**: Individual page files with safe filename generation
+5. **Summary Generation**: Comprehensive crawl metadata in JSON format
+
+The service integrates with crawl4ai's AsyncWebCrawler while maintaining clean separation between crawling logic and content extraction.
 
 #### Data Models
 

@@ -1,5 +1,11 @@
 # CLI Interface Design
 
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2025-07-23 | Initial CLI interface design with comprehensive command structure |
+
 ## Overview
 
 The CLI interface provides a powerful command-line interface for the Crawler system, supporting both scraping and crawling operations with full access to all crawl4ai capabilities. The interface follows the principle that "scrape" refers to single-page operations while "crawl" refers to multi-page operations.
@@ -179,6 +185,66 @@ crawler crawl https://example.com --extract-strategy css --css-selector ".conten
 # Resumable crawl
 crawler crawl https://example.com --progress-file ./crawl_progress.json --status-interval 5
 ```
+
+#### Expected Crawl Output Behavior
+
+##### Console Output (No --output specified)
+
+When running `crawler crawl https://example.com`, the expected output includes:
+
+**A. Crawl Summary Table**
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                   Crawl Summary                                    ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Property            │ Value                    │
+├─────────────────────┼──────────────────────────┤
+│ Status              │ completed                │
+│ Start URL           │ https://example.com      │
+│ Pages Crawled       │ 15                       │
+│ Pages Successful    │ 13                       │
+│ Pages Failed        │ 2                        │
+│ Max Depth Reached   │ 3                        │
+│ URLs Discovered     │ 47                       │
+│ Results Stored      │ 13                       │
+│ Elapsed Time        │ 45.67s                   │
+│ Success Rate        │ 86.7%                    │
+└─────────────────────┴──────────────────────────┘
+```
+
+**B. Content Preview (First 3 Results)**
+```
+First 3 results:
+
+Page 1: https://example.com
+# Example Home Page
+
+Welcome to our website! This is the main content of the homepage...
+
+Page 2: https://example.com/about
+# About Our Company
+
+Learn more about our mission, vision, and values...
+
+Page 3: https://example.com/products
+# Our Products
+
+Explore our range of products and services...
+```
+
+##### File Output (With --output specified)
+
+When using `--output ./results`, creates:
+```
+./results/
+├── crawl_summary.json          # Overall crawl metadata
+├── example.com.md             # Homepage content (markdown format)
+├── example.com_about.md       # About page content
+├── example.com_products.md    # Products page content
+└── ...                        # Additional page files
+```
+
+Each page file contains structured content with metadata headers, extracted content, links, and images.
 
 ### 3. Batch Command
 

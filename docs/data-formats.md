@@ -1,5 +1,11 @@
 # Data Formats Design
 
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2025-07-03 | Initial data formats design with comprehensive input/output handling |
+
 ## Overview
 
 This document details the comprehensive input and output format handling for the Crawler system, leveraging all crawl4ai capabilities. The system supports various input sources and output formats to accommodate different use cases and integration requirements.
@@ -402,6 +408,14 @@ Links are shown as: Link Text (https://example.com/link)
   }
 }
 ```
+
+**Data Structure Note**: The above JSON structure represents the complete data model. The `content` field contains a nested dictionary with format-specific content:
+- `content.markdown`: Extracted content in markdown format
+- `content.html`: Original HTML content
+- `content.text`: Plain text extraction
+- `content.extracted_data`: Structured data extraction results
+
+CLI commands should access specific content formats using defensive programming to handle cases where content might be a string instead of a dictionary structure.
 
 #### XML Format
 ```xml
