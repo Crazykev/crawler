@@ -5,7 +5,7 @@ import re
 import uuid
 from typing import Any, Dict, List, Optional, Set, Union
 from datetime import datetime, timedelta
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urldefrag
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -146,6 +146,9 @@ class CrawlService:
             try:
                 # Validate start URL
                 self._validate_url(start_url)
+
+                # Normalize for crawl/dedupe (e.g., strip #fragments)
+                crawl_start_url = self._normalize_url_for_crawl(start_url)
                 
                 # Initialize crawl state
                 crawl_state = CrawlState(
@@ -156,8 +159,8 @@ class CrawlService:
                 
                 # Initialize crawl data structures
                 self._active_crawls[crawl_id] = crawl_state
-                self._crawl_queues[crawl_id] = deque([(start_url, 0)])  # (url, depth)
-                self._crawl_visited[crawl_id] = {start_url}
+                self._crawl_queues[crawl_id] = deque([(crawl_start_url, 0)])  # (url, depth)
+                self._crawl_visited[crawl_id] = {crawl_start_url}
                 self._crawl_tasks[crawl_id] = []
                 
                 # Start crawl execution
@@ -451,6 +454,8 @@ class CrawlService:
         
         async with semaphore:
             try:
+                url = self._normalize_url_for_crawl(url)
+
                 # Update state
                 crawl_state.pages_crawled += 1
                 crawl_state.current_depth = max(crawl_state.current_depth, depth)
@@ -513,7 +518,8 @@ class CrawlService:
         Returns:
             List of discovered URLs
         """
-        discovered_urls = []
+        discovered_urls: List[str] = []
+        discovered_set: Set[str] = set()
         
         try:
             # Get links from result - check both top level and metadata
@@ -529,15 +535,31 @@ class CrawlService:
                 # Convert relative URLs to absolute
                 if not link_url.startswith(("http://", "https://")):
                     link_url = urljoin(url, link_url)
+
+                # Normalize for crawl (e.g., strip in-page #fragments)
+                link_url = self._normalize_url_for_crawl(link_url)
                 
                 # Apply filtering rules
-                if self._should_follow_link(url, link_url, crawl_rules):
-                    discovered_urls.append(link_url)
+                if link_url and self._should_follow_link(url, link_url, crawl_rules):
+                    if link_url not in discovered_set:
+                        discovered_set.add(link_url)
+                        discovered_urls.append(link_url)
             
         except Exception as e:
             self.logger.error(f"Failed to discover links from {url}: {e}")
         
         return discovered_urls
+
+    def _normalize_url_for_crawl(self, url: str) -> str:
+        """Normalize URLs for crawl queueing/deduplication.
+
+        Currently:
+        - Strips `#fragment` so in-page anchors don't cause duplicate crawls.
+        """
+        if not url:
+            return url
+        normalized, _fragment = urldefrag(url)
+        return normalized
     
     def _should_follow_link(
         self,

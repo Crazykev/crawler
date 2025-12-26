@@ -33,12 +33,14 @@ logger = get_logger(__name__)
     "output_format",
     type=click.Choice(["markdown", "json", "html", "text"]),
     default="markdown",
+    show_default=True,
     help="Output format"
 )
 @click.option(
     "--extract-strategy",
     type=click.Choice(["auto", "css", "llm"]),
     default="auto",
+    show_default=True,
     help="Content extraction strategy"
 )
 @click.option(
@@ -61,6 +63,7 @@ logger = get_logger(__name__)
 @click.option(
     "--headless/--no-headless",
     default=True,
+    show_default=True,
     help="Run browser in headless mode"
 )
 @click.option(
@@ -93,6 +96,7 @@ logger = get_logger(__name__)
 @click.option(
     "--cache/--no-cache",
     default=True,
+    show_default=True,
     help="Enable/disable caching"
 )
 @click.option(
@@ -109,6 +113,7 @@ logger = get_logger(__name__)
     "--priority",
     type=int,
     default=0,
+    show_default=True,
     help="Job priority (for async jobs)"
 )
 @click.pass_context

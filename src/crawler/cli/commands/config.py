@@ -63,6 +63,7 @@ def config(ctx, config_path):
     "--format",
     type=click.Choice(["yaml", "json", "table"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.option(
@@ -108,6 +109,7 @@ def show(ctx, format, section):
     "--format",
     type=click.Choice(["yaml", "json", "raw"]),
     default="raw",
+    show_default=True,
     help="Output format"
 )
 @click.pass_context
@@ -153,6 +155,7 @@ def get(ctx, key, format):
     "value_type",
     type=click.Choice(["string", "int", "float", "bool", "json"]),
     default="string",
+    show_default=True,
     help="Value type"
 )
 @click.option(
@@ -342,6 +345,7 @@ def path(ctx):
     "--format",
     type=click.Choice(["yaml", "json"]),
     default="yaml",
+    show_default=True,
     help="Export format"
 )
 @click.pass_context

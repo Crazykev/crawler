@@ -33,42 +33,49 @@ logger = get_logger(__name__)
     "output_format",
     type=click.Choice(["markdown", "json", "html", "text"]),
     default="markdown",
+    show_default=True,
     help="Output format"
 )
 @click.option(
     "--max-depth",
     type=int,
     default=3,
+    show_default=True,
     help="Maximum crawl depth"
 )
 @click.option(
     "--max-pages",
     type=int,
     default=100,
+    show_default=True,
     help="Maximum number of pages to crawl"
 )
 @click.option(
     "--max-duration",
     type=int,
     default=3600,
+    show_default=True,
     help="Maximum crawl duration in seconds"
 )
 @click.option(
     "--delay",
     type=float,
     default=1.0,
+    show_default=True,
     help="Delay between requests in seconds"
 )
 @click.option(
     "--concurrent-requests",
     type=int,
     default=5,
+    show_default=True,
     help="Number of concurrent requests"
 )
 @click.option(
     "--extract-strategy",
     type=click.Choice(["auto", "css", "llm"]),
     default="auto",
+    show_default=True,
     help="Content extraction strategy"
 )
 @click.option(
@@ -96,16 +103,19 @@ logger = get_logger(__name__)
 @click.option(
     "--allow-external/--no-external",
     default=False,
+    show_default=True,
     help="Allow crawling external domains"
 )
 @click.option(
     "--allow-subdomains/--no-subdomains",
     default=True,
+    show_default=True,
     help="Allow crawling subdomains"
 )
 @click.option(
     "--respect-robots/--ignore-robots",
     default=True,
+    show_default=True,
     help="Respect robots.txt"
 )
 @click.option(
@@ -116,6 +126,7 @@ logger = get_logger(__name__)
 @click.option(
     "--headless/--no-headless",
     default=True,
+    show_default=True,
     help="Run browser in headless mode"
 )
 @click.option(
@@ -148,6 +159,7 @@ logger = get_logger(__name__)
 @click.option(
     "--cache/--no-cache",
     default=True,
+    show_default=True,
     help="Enable/disable caching"
 )
 @click.option(
@@ -164,6 +176,7 @@ logger = get_logger(__name__)
     "--priority",
     type=int,
     default=0,
+    show_default=True,
     help="Job priority (for async jobs)"
 )
 @click.option(

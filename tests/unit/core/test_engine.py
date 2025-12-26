@@ -86,6 +86,79 @@ class TestCrawlEngine:
         assert crawler is not None
         # Verify we got the mocked crawler instance
         assert crawler == mock_asyncwebcrawler
+
+    @pytest.mark.asyncio
+    async def test_get_crawler_passes_proxy_config_from_settings(self):
+        """Ensure proxy settings are forwarded into crawl4ai BrowserConfig."""
+        engine = CrawlEngine()
+        engine.config_manager = Mock()
+        engine.config_manager.get_setting.side_effect = lambda key, default=None: {
+            "browser.headless": True,
+            "browser.user_agent": "TestCrawler/1.0",
+            "browser.viewport_width": 1920,
+            "browser.viewport_height": 1080,
+            "browser.proxy_url": "http://proxy.local:8080",
+            "browser.proxy_username": "user",
+            "browser.proxy_password": "pass",
+            "browser.extra_args": None,
+        }.get(key, default)
+
+        with patch("crawl4ai.async_configs.ProxyConfig") as mock_proxy_config:
+            with patch("crawl4ai.async_configs.BrowserConfig") as mock_browser_config:
+                browser_config_instance = Mock()
+                mock_browser_config.return_value = browser_config_instance
+
+                with patch("src.crawler.core.engine.AsyncWebCrawler") as mock_crawler_class:
+                    crawler_instance = AsyncMock()
+                    mock_crawler_class.return_value = crawler_instance
+
+                    crawler = await engine._get_crawler()
+
+        assert crawler is crawler_instance
+        mock_proxy_config.assert_called_once_with(
+            server="http://proxy.local:8080",
+            username="user",
+            password="pass",
+        )
+        assert mock_browser_config.call_args.kwargs["proxy_config"] == mock_proxy_config.return_value
+        mock_crawler_class.assert_called_once_with(config=browser_config_instance)
+
+    @pytest.mark.asyncio
+    async def test_get_crawler_parses_proxy_credentials_from_env(self, monkeypatch):
+        """Ensure proxy credentials in HTTPS_PROXY are split into ProxyConfig fields."""
+        monkeypatch.setenv("HTTPS_PROXY", "http://envuser:envpass@proxy.example:3128")
+
+        engine = CrawlEngine()
+        engine.config_manager = Mock()
+        engine.config_manager.get_setting.side_effect = lambda key, default=None: {
+            "browser.headless": True,
+            "browser.user_agent": "TestCrawler/1.0",
+            "browser.viewport_width": 1920,
+            "browser.viewport_height": 1080,
+            "browser.proxy_url": None,
+            "browser.proxy_username": None,
+            "browser.proxy_password": None,
+            "browser.extra_args": None,
+        }.get(key, default)
+
+        with patch("crawl4ai.async_configs.ProxyConfig") as mock_proxy_config:
+            with patch("crawl4ai.async_configs.BrowserConfig") as mock_browser_config:
+                browser_config_instance = Mock()
+                mock_browser_config.return_value = browser_config_instance
+
+                with patch("src.crawler.core.engine.AsyncWebCrawler") as mock_crawler_class:
+                    crawler_instance = AsyncMock()
+                    mock_crawler_class.return_value = crawler_instance
+
+                    crawler = await engine._get_crawler()
+
+        assert crawler is crawler_instance
+        mock_proxy_config.assert_called_once_with(
+            server="http://proxy.example:3128",
+            username="envuser",
+            password="envpass",
+        )
+        assert mock_browser_config.call_args.kwargs["proxy_config"] == mock_proxy_config.return_value
     
     @pytest.mark.asyncio
     async def test_get_crawler_without_crawl4ai(self):

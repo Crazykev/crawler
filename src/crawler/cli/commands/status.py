@@ -33,6 +33,7 @@ logger = get_logger(__name__)
     "--format",
     type=click.Choice(["table", "json"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.pass_context
@@ -94,6 +95,7 @@ def status(ctx, health, format):
     "--format",
     type=click.Choice(["table", "json"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.pass_context
@@ -119,12 +121,14 @@ def overview(ctx, format):
     "--format",
     type=click.Choice(["table", "json"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.option(
     "--limit",
     type=int,
     default=10,
+    show_default=True,
     help="Number of jobs to show"
 )
 @click.pass_context
@@ -150,6 +154,7 @@ def jobs(ctx, format, limit):
     "--format",
     type=click.Choice(["table", "json"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.pass_context
@@ -175,6 +180,7 @@ def sessions(ctx, format):
     "--format",
     type=click.Choice(["table", "json"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.pass_context
@@ -200,6 +206,7 @@ def metrics(ctx, format):
     "--interval",
     type=int,
     default=5,
+    show_default=True,
     help="Update interval in seconds"
 )
 @click.option(
@@ -228,6 +235,7 @@ def monitor(ctx, interval, count):
     "--format",
     type=click.Choice(["table", "json"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.pass_context

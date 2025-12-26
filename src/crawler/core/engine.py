@@ -1,6 +1,7 @@
 """Core crawling engine that integrates with crawl4ai."""
 
 import asyncio
+import os
 import ssl
 import socket
 import time
@@ -666,6 +667,18 @@ class CrawlEngine:
             if session_config.timeout is not None:
                 browser_config["timeout"] = session_config.timeout
             browser_config["headless"] = session_config.headless
+            if session_config.proxy_url is not None:
+                browser_config["proxy_url"] = session_config.proxy_url
+            if session_config.proxy_username is not None:
+                browser_config["proxy_username"] = session_config.proxy_username
+            if session_config.proxy_password is not None:
+                browser_config["proxy_password"] = session_config.proxy_password
+            if session_config.viewport_width is not None:
+                browser_config["viewport_width"] = session_config.viewport_width
+            if session_config.viewport_height is not None:
+                browser_config["viewport_height"] = session_config.viewport_height
+            if session_config.extra_options:
+                browser_config.update(session_config.extra_options)
         else:
             raise ConfigurationError(f"Session {session_id} not found or has been closed")
         return browser_config
@@ -973,20 +986,33 @@ class CrawlEngine:
         
         # Merge with provided config
         config = {**default_config, **browser_config}
-        
+
         # Create new crawler instance (crawl4ai manages browser lifecycle)
         user_agent = config.get("user_agent")
         if user_agent is None:
             user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36"
         self.logger.debug(f"Creating crawler with user_agent: {user_agent}")
-        
+
         from crawl4ai.async_configs import BrowserConfig
+
+        proxy_config = self._resolve_proxy_config(config)
+        extra_args = self._resolve_extra_browser_args(config)
+
+        browser_type = config.get(
+            "browser_type",
+            self.config_manager.get_setting("browser.browser_type", "chromium"),
+        )
+        if not browser_type:
+            browser_type = "chromium"
+
         browser_config = BrowserConfig(
             headless=config.get("headless", True),
-            browser_type="chromium",  # Default to Chromium
+            browser_type=browser_type,
             user_agent=user_agent,
             viewport_width=config.get("viewport_width"),
             viewport_height=config.get("viewport_height"),
+            proxy_config=proxy_config,
+            extra_args=extra_args,
             verbose=self.logger.level <= 10  # DEBUG level
         )
         
@@ -995,6 +1021,75 @@ class CrawlEngine:
         )
         
         return crawler
+
+    def _resolve_proxy_config(self, config: Dict[str, Any]):
+        """Resolve proxy configuration for crawl4ai/Playwright.
+
+        Priority:
+        1) Explicit browser config overrides (e.g. session / options)
+        2) Crawler config settings (browser.proxy_*)
+        3) Standard environment variables (HTTPS_PROXY/HTTP_PROXY/ALL_PROXY)
+        """
+        try:
+            from crawl4ai.async_configs import ProxyConfig
+        except Exception:
+            return None
+
+        proxy_url = (
+            config.get("proxy_url")
+            or config.get("proxy")
+            or self.config_manager.get_setting("browser.proxy_url")
+        )
+
+        if not proxy_url:
+            proxy_url = (
+                os.environ.get("HTTPS_PROXY")
+                or os.environ.get("https_proxy")
+                or os.environ.get("HTTP_PROXY")
+                or os.environ.get("http_proxy")
+                or os.environ.get("ALL_PROXY")
+                or os.environ.get("all_proxy")
+            )
+
+        if not proxy_url:
+            return None
+
+        proxy_username = config.get("proxy_username") or self.config_manager.get_setting("browser.proxy_username")
+        proxy_password = config.get("proxy_password") or self.config_manager.get_setting("browser.proxy_password")
+
+        # If proxy_url contains credentials, split them out for ProxyConfig.
+        try:
+            parsed = urlparse(proxy_url)
+            if parsed.username is not None:
+                proxy_username = parsed.username
+            if parsed.password is not None:
+                proxy_password = parsed.password
+
+            if parsed.scheme and parsed.hostname:
+                # Rebuild proxy server URL without credentials.
+                netloc = parsed.hostname
+                if parsed.port:
+                    netloc = f"{netloc}:{parsed.port}"
+                proxy_server = f"{parsed.scheme}://{netloc}"
+            else:
+                proxy_server = proxy_url
+        except Exception:
+            proxy_server = proxy_url
+
+        return ProxyConfig(server=proxy_server, username=proxy_username, password=proxy_password)
+
+    def _resolve_extra_browser_args(self, config: Dict[str, Any]) -> Optional[List[str]]:
+        """Resolve extra browser args (Chromium flags) from config."""
+        extra_args = config.get("extra_args") or self.config_manager.get_setting("browser.extra_args")
+        if extra_args is None:
+            return None
+        if isinstance(extra_args, list):
+            return [str(arg) for arg in extra_args if str(arg).strip()]
+        if isinstance(extra_args, str):
+            # Keep it simple; allow users to pass a space-separated string.
+            parts = [p.strip() for p in extra_args.split(" ") if p.strip()]
+            return parts or None
+        return None
     
     def _translate_extraction_strategy(
         self,

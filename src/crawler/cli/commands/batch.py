@@ -39,6 +39,7 @@ logger = get_logger(__name__)
     "--mode",
     type=click.Choice(["scrape", "crawl"]),
     default="scrape",
+    show_default=True,
     help="Processing mode (scrape individual pages or crawl sites)"
 )
 @click.option(
@@ -46,24 +47,28 @@ logger = get_logger(__name__)
     "output_format",
     type=click.Choice(["markdown", "json", "html", "text"]),
     default="markdown",
+    show_default=True,
     help="Output format"
 )
 @click.option(
     "--concurrent",
     type=int,
     default=5,
+    show_default=True,
     help="Number of concurrent operations"
 )
 @click.option(
     "--delay",
     type=float,
     default=1.0,
+    show_default=True,
     help="Delay between operations in seconds"
 )
 @click.option(
     "--extract-strategy",
     type=click.Choice(["auto", "css", "llm"]),
     default="auto",
+    show_default=True,
     help="Content extraction strategy"
 )
 @click.option(
@@ -82,12 +87,14 @@ logger = get_logger(__name__)
     "--max-depth",
     type=int,
     default=2,
+    show_default=True,
     help="Maximum crawl depth (crawl mode only)"
 )
 @click.option(
     "--max-pages",
     type=int,
     default=50,
+    show_default=True,
     help="Maximum pages per site (crawl mode only)"
 )
 @click.option(
@@ -98,6 +105,7 @@ logger = get_logger(__name__)
 @click.option(
     "--headless/--no-headless",
     default=True,
+    show_default=True,
     help="Run browser in headless mode"
 )
 @click.option(
@@ -111,6 +119,7 @@ logger = get_logger(__name__)
 @click.option(
     "--cache/--no-cache",
     default=True,
+    show_default=True,
     help="Enable/disable caching"
 )
 @click.option(

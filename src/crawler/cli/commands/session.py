@@ -55,17 +55,20 @@ def session(ctx):
     "--browser-type",
     type=click.Choice(["chromium", "firefox", "webkit"]),
     default="chromium",
+    show_default=True,
     help="Browser type"
 )
 @click.option(
     "--headless/--no-headless",
     default=True,
+    show_default=True,
     help="Run browser in headless mode"
 )
 @click.option(
     "--timeout",
     type=int,
     default=30,
+    show_default=True,
     help="Page load timeout in seconds"
 )
 @click.option(
@@ -88,18 +91,21 @@ def session(ctx):
     "--viewport-width",
     type=int,
     default=1920,
+    show_default=True,
     help="Browser viewport width"
 )
 @click.option(
     "--viewport-height",
     type=int,
     default=1080,
+    show_default=True,
     help="Browser viewport height"
 )
 @click.option(
     "--session-timeout",
     type=int,
     default=1800,
+    show_default=True,
     help="Session timeout in seconds"
 )
 @click.pass_context
@@ -169,6 +175,7 @@ def create(ctx, session_id, browser_type, headless, timeout, user_agent,
     "--format",
     type=click.Choice(["table", "json"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.pass_context
@@ -219,6 +226,7 @@ def list(ctx, include_inactive, format):
     "--format",
     type=click.Choice(["table", "json"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.pass_context
@@ -322,6 +330,7 @@ def cleanup(ctx):
     "--format",
     type=click.Choice(["table", "json"]),
     default="table",
+    show_default=True,
     help="Output format"
 )
 @click.pass_context
