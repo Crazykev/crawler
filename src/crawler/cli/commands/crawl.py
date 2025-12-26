@@ -240,7 +240,8 @@ def crawl(ctx, start_url, output, output_format, max_depth, max_pages, max_durat
             screenshot=screenshot,
             pdf=pdf,
             cache=cache,
-            cache_ttl=cache_ttl
+            cache_ttl=cache_ttl,
+            output_dir=output
         )
         
         # Prepare extraction strategy
@@ -295,7 +296,8 @@ def _prepare_crawl_options(
     screenshot: bool,
     pdf: bool,
     cache: bool,
-    cache_ttl: Optional[int]
+    cache_ttl: Optional[int],
+    output_dir: Optional[str]
 ) -> Dict[str, Any]:
     """Prepare crawling options."""
     options = {
@@ -319,6 +321,8 @@ def _prepare_crawl_options(
         options["pdf"] = True
     if cache_ttl is not None:
         options["cache_ttl"] = cache_ttl
+    if output_dir and (screenshot or pdf):
+        options["artifact_dir"] = output_dir
     
     return options
 

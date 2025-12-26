@@ -427,13 +427,25 @@ def mock_crawl4ai(mock_scrape_service):
             def mock_constructor(**kwargs):
                 nonlocal current_user_agent
                 # Capture user_agent from the constructor arguments
-                current_user_agent = kwargs.get("user_agent", "Crawler/1.0")
+                if "user_agent" in kwargs:
+                    current_user_agent = kwargs.get("user_agent", "Crawler/1.0")
+                elif "config" in kwargs and getattr(kwargs["config"], "user_agent", None):
+                    current_user_agent = getattr(kwargs["config"], "user_agent")
+                else:
+                    current_user_agent = "Crawler/1.0"
             
                 mock_crawler = AsyncMock()
                 
                 def create_mock_result(url, arun_kwargs=None):
                     if arun_kwargs is None:
                         arun_kwargs = {}
+
+                    run_config = arun_kwargs.get("config")
+                    page_timeout = arun_kwargs.get("page_timeout")
+                    if page_timeout is None and run_config is not None:
+                        page_timeout = getattr(run_config, "page_timeout", None)
+                    if page_timeout is None:
+                        page_timeout = 30000
                     
                     mock_result = Mock()
                     mock_result.links = []
@@ -449,7 +461,7 @@ def mock_crawl4ai(mock_scrape_service):
                         mock_result.cleaned_html = ""
                         mock_result.metadata = {}
                         mock_result.extracted_content = None
-                    elif "delay" in url and arun_kwargs.get("page_timeout", 30000) < 5000:
+                    elif "delay" in url and page_timeout < 5000:
                         mock_result.success = False
                         mock_result.status_code = None
                         mock_result.error_message = "Request timeout"

@@ -156,7 +156,8 @@ def scrape(ctx, url, output, output_format, extract_strategy, css_selector,
             screenshot=screenshot,
             pdf=pdf,
             cache=cache,
-            cache_ttl=cache_ttl
+            cache_ttl=cache_ttl,
+            output_path=output
         )
         
         # Prepare extraction strategy
@@ -208,7 +209,8 @@ def _prepare_scrape_options(
     screenshot: bool,
     pdf: bool,
     cache: bool,
-    cache_ttl: Optional[int]
+    cache_ttl: Optional[int],
+    output_path: Optional[str]
 ) -> Dict[str, Any]:
     """Prepare scraping options."""
     options = {
@@ -232,6 +234,10 @@ def _prepare_scrape_options(
         options["pdf"] = True
     if cache_ttl is not None:
         options["cache_ttl"] = cache_ttl
+    if output_path and (screenshot or pdf):
+        output_file = Path(output_path).expanduser().resolve()
+        options["artifact_dir"] = str(output_file.parent)
+        options["artifact_basename"] = output_file.stem
     
     return options
 

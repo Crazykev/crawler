@@ -1,6 +1,8 @@
 """Service for handling single-page scraping operations."""
 
 import asyncio
+import base64
+import re
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 from pathlib import Path
@@ -117,7 +119,10 @@ class ScrapeService:
                     
                     # Apply output format transformation
                     formatted_result = self._format_result(result, output_format)
-                    
+
+                    # Persist artifacts (PDF/screenshot) to disk if requested.
+                    self._store_artifacts_if_requested(formatted_result, scrape_options)
+
                     # For service layer, extract content based on output format if not JSON
                     if output_format != "json":
                         content = formatted_result.get("content", {})
@@ -526,6 +531,76 @@ class ScrapeService:
             options.update(user_options)
             
         return options
+
+    def _store_artifacts_if_requested(self, result: Dict[str, Any], options: Dict[str, Any]) -> None:
+        """Store optional artifacts (PDF/screenshot) to disk and replace raw data with paths."""
+        if not result.get("success"):
+            return
+
+        artifacts = result.get("artifacts")
+        if not isinstance(artifacts, dict) or not artifacts:
+            return
+
+        wants_pdf = bool(options.get("pdf"))
+        wants_screenshot = bool(options.get("screenshot"))
+        if not (wants_pdf or wants_screenshot):
+            return
+
+        artifact_dir_opt = options.get("artifact_dir")
+        if artifact_dir_opt:
+            artifact_dir = Path(str(artifact_dir_opt)).expanduser()
+        else:
+            base_dir = Path(self.config_manager.get_setting("storage.results_dir", "~/.crawler/results")).expanduser()
+            artifact_dir = base_dir / "artifacts"
+            job_id = options.get("job_id")
+            if job_id:
+                artifact_dir = artifact_dir / str(job_id)
+
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        url = result.get("url", "page")
+        base_name = options.get("artifact_basename") or self._url_to_safe_basename(url)
+
+        stored: Dict[str, str] = {}
+
+        if wants_screenshot and artifacts.get("screenshot"):
+            try:
+                png_b64 = artifacts.get("screenshot")
+                png_bytes = base64.b64decode(png_b64)
+                screenshot_path = artifact_dir / f"{base_name}.png"
+                screenshot_path.write_bytes(png_bytes)
+                stored["screenshot_path"] = str(screenshot_path)
+            except Exception as e:
+                self.logger.warning(f"Failed to store screenshot for {url}: {e}")
+
+        if wants_pdf and artifacts.get("pdf"):
+            try:
+                pdf_bytes = artifacts.get("pdf")
+                if isinstance(pdf_bytes, str):
+                    # If upstream returns base64 (unexpected), decode.
+                    pdf_bytes = base64.b64decode(pdf_bytes)
+                pdf_path = artifact_dir / f"{base_name}.pdf"
+                pdf_path.write_bytes(pdf_bytes)
+                stored["pdf_path"] = str(pdf_path)
+            except Exception as e:
+                self.logger.warning(f"Failed to store PDF for {url}: {e}")
+
+        if stored:
+            result["artifacts"] = stored
+            result.setdefault("metadata", {})
+            result["metadata"].setdefault("artifacts", {}).update(stored)
+        else:
+            # Avoid returning non-serializable bytes/base64 blobs.
+            result.pop("artifacts", None)
+
+    def _url_to_safe_basename(self, url: str) -> str:
+        """Convert URL to a filesystem-safe basename (without extension)."""
+        filename = re.sub(r"^https?://", "", url)
+        filename = re.sub(r"[<>:\"/\\\\|?*]", "_", filename)
+        filename = re.sub(r"_+", "_", filename).strip("_")
+        if len(filename) > 100:
+            filename = filename[:100].rstrip("_")
+        return filename or "page"
     
     async def _store_scrape_result(self, result: Dict[str, Any], job_id: Optional[str] = None) -> Optional[str]:
         """Store scraping result in database.

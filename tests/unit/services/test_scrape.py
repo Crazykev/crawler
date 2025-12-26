@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
+from pathlib import Path
 
 from src.crawler.services.scrape import ScrapeService
 from src.crawler.foundation.errors import NetworkError, ValidationError
@@ -136,6 +137,38 @@ class TestScrapeService:
         # Verify session ID was passed
         call_args = scrape_service.crawl_engine.scrape_single.call_args
         assert call_args[1]["session_id"] == session_id
+
+    @pytest.mark.asyncio
+    async def test_scrape_single_pdf_writes_file_and_returns_path(self, scrape_service, temp_dir):
+        """Test that --pdf writes a PDF file and returns its path (not raw bytes)."""
+        url = "https://example.com"
+        pdf_bytes = b"%PDF-1.4 fake pdf bytes"
+
+        scrape_service.crawl_engine.scrape_single.return_value = {
+            "success": True,
+            "url": url,
+            "title": "Example Page",
+            "status_code": 200,
+            "content": {"markdown": "content", "html": "<p>content</p>", "text": "content"},
+            "links": [],
+            "images": [],
+            "metadata": {},
+            "artifacts": {"pdf": pdf_bytes},
+        }
+
+        result = await scrape_service.scrape_single(
+            url=url,
+            options={"pdf": True, "artifact_dir": str(temp_dir)},
+            store_result=False,
+        )
+
+        assert result["success"] is True
+        assert "artifacts" in result
+        assert "pdf_path" in result["artifacts"]
+        assert "pdf" not in result["artifacts"]
+        pdf_path = Path(result["artifacts"]["pdf_path"])
+        assert pdf_path.exists()
+        assert pdf_path.read_bytes() == pdf_bytes
     
     @pytest.mark.asyncio
     async def test_scrape_single_store_result(self, scrape_service, sample_scrape_result):

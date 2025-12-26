@@ -592,6 +592,12 @@ class CrawlEngine:
     # Refactored helper methods
     async def _check_cache(self, url: str, options: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Check cache for existing result."""
+        # Never serve cached results when capturing artifacts (PDF/screenshot),
+        # because cached entries won't include those outputs.
+        if options.get("pdf") or options.get("screenshot"):
+            self.metrics.increment_counter("crawl_engine.cache_bypassed")
+            return None
+
         if options.get("cache_enabled", True):
             cached_result = await self.storage_manager.get_cached_result(url, options)
             if cached_result:
@@ -640,19 +646,23 @@ class CrawlEngine:
         if extraction_strategy:
             strategy = self._translate_extraction_strategy(extraction_strategy)
         
-        # Prepare crawl parameters
-        crawl_params = {
-            "url": url,
-            "extraction_strategy": strategy,
-            "bypass_cache": not options.get("cache_enabled", True),
-            "page_timeout": options.get("timeout", 30) * 1000,
-        }
-        
-        # Add optional parameters
-        if "js_code" in options:
-            crawl_params["js_code"] = options["js_code"]
-        if "wait_for" in options:
-            crawl_params["wait_for"] = options["wait_for"]
+        # Prepare crawl4ai run config (required for features like PDF/screenshot).
+        from crawl4ai.async_configs import CrawlerRunConfig
+        from crawl4ai.cache_context import CacheMode
+        cache_mode = CacheMode.ENABLED if options.get("cache_enabled", True) else CacheMode.BYPASS
+        if options.get("pdf") or options.get("screenshot"):
+            cache_mode = CacheMode.BYPASS
+        run_config = CrawlerRunConfig(
+            extraction_strategy=strategy,
+            cache_mode=cache_mode,
+            page_timeout=options.get("timeout", 30) * 1000,
+            js_code=options.get("js_code"),
+            wait_for=options.get("wait_for"),
+            screenshot=bool(options.get("screenshot")),
+            pdf=bool(options.get("pdf")),
+        )
+
+        crawl_params = {"url": url, "config": run_config}
         
         # Execute with retry logic
         return await self._execute_with_retry(crawler, crawl_params, url, options)
@@ -832,6 +842,12 @@ class CrawlEngine:
                 "extraction_strategy": extraction_strategy.get("type") if extraction_strategy else "auto"
             }
         }
+
+        # Optional artifacts (kept separate so callers can persist them to disk if desired).
+        if options.get("screenshot") and getattr(raw_result, "screenshot", None):
+            result_data.setdefault("artifacts", {})["screenshot"] = getattr(raw_result, "screenshot")
+        if options.get("pdf") and getattr(raw_result, "pdf", None):
+            result_data.setdefault("artifacts", {})["pdf"] = getattr(raw_result, "pdf")
         
         # Add crawl4ai metadata
         if raw_result.metadata:
@@ -902,7 +918,10 @@ class CrawlEngine:
         """Cache and store the result."""
         if options.get("cache_enabled", True):
             cache_ttl = options.get("cache_ttl", self.config_manager.get_setting("scrape.cache_ttl", 3600))
-            await self.storage_manager.store_cached_result(url, result_data, options, cache_ttl)
+            # Avoid caching large/non-JSON-safe blobs like raw PDF bytes or base64 screenshots.
+            cache_data = dict(result_data)
+            cache_data.pop("artifacts", None)
+            await self.storage_manager.store_cached_result(url, cache_data, options, cache_ttl)
     
     async def _handle_scrape_error(self, error: Exception, url: str) -> Dict[str, Any]:
         """Handle scraping errors consistently."""
