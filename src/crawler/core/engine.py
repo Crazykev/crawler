@@ -1542,9 +1542,16 @@ class CrawlEngine:
     async def close(self) -> None:
         """Clean up resources."""
         try:
+            if self._crawler_pool:
+                await self._crawler_pool.close_all()
+                self._crawler_pool = None
+
             if self._crawler:
                 await self._crawler.close()
                 self._crawler = None
+
+            if self._session_service and hasattr(self._session_service, "shutdown"):
+                await self._session_service.shutdown()
             self.logger.info("Crawl engine closed")
         except Exception as e:
             self.logger.error(f"Error closing crawl engine: {e}")

@@ -46,6 +46,21 @@ class ScrapeService:
             self.logger.error(error_msg)
             handle_error(ValidationError(error_msg))
             raise
+
+    async def shutdown(self) -> None:
+        """Shutdown the scrape service and clean up resources."""
+        try:
+            if hasattr(self.crawl_engine, "close"):
+                await self.crawl_engine.close()
+        finally:
+            if hasattr(self.job_manager, "close"):
+                await self.job_manager.close()
+            elif hasattr(self.job_manager, "cleanup"):
+                await self.job_manager.cleanup()
+
+    async def close(self) -> None:
+        """Alias for shutdown()."""
+        await self.shutdown()
     
     async def scrape_single(
         self,

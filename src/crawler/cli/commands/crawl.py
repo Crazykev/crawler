@@ -375,41 +375,46 @@ async def _run_sync_crawl(
     """Run synchronous crawling."""
     crawl_service = get_crawl_service()
     await crawl_service.initialize()
-    
-    # Start crawl
-    crawl_id = await crawl_service.start_crawl(
-        start_url=start_url,
-        crawl_rules=crawl_rules,
-        options=options,
-        extraction_strategy=extraction_strategy,
-        output_format=output_format,
-        session_id=session_id,
-        store_results=True
-    )
-    
-    # Monitor progress if requested
-    if monitor and not quiet:
-        await _monitor_crawl_progress(crawl_service, crawl_id)
-    elif not quiet:
-        console.print(f"[green]Crawl started:[/green] {crawl_id}")
-        console.print("Use --monitor to see real-time progress")
-    
-    # Wait for completion
-    while True:
-        status = await crawl_service.get_crawl_status(crawl_id)
-        if not status or status["status"] in ["completed", "failed", "cancelled"]:
-            break
-        await asyncio.sleep(1)
-    
-    # Get final results
-    final_status = await crawl_service.get_crawl_status(crawl_id)
-    results = await crawl_service.get_crawl_results(crawl_id)
-    
-    return {
-        "crawl_id": crawl_id,
-        "status": final_status,
-        "results": results
-    }
+    try:
+        # Start crawl
+        crawl_id = await crawl_service.start_crawl(
+            start_url=start_url,
+            crawl_rules=crawl_rules,
+            options=options,
+            extraction_strategy=extraction_strategy,
+            output_format=output_format,
+            session_id=session_id,
+            store_results=True
+        )
+        
+        # Monitor progress if requested
+        if monitor and not quiet:
+            await _monitor_crawl_progress(crawl_service, crawl_id)
+        elif not quiet:
+            console.print(f"[green]Crawl started:[/green] {crawl_id}")
+            console.print("Use --monitor to see real-time progress")
+        
+        # Wait for completion
+        while True:
+            status = await crawl_service.get_crawl_status(crawl_id)
+            if not status or status["status"] in ["completed", "failed", "cancelled"]:
+                break
+            await asyncio.sleep(1)
+        
+        # Get final results
+        final_status = await crawl_service.get_crawl_status(crawl_id)
+        results = await crawl_service.get_crawl_results(crawl_id)
+        
+        return {
+            "crawl_id": crawl_id,
+            "status": final_status,
+            "results": results
+        }
+    finally:
+        if hasattr(crawl_service, "shutdown"):
+            await crawl_service.shutdown()
+        elif hasattr(crawl_service, "close"):
+            await crawl_service.close()
 
 
 async def _run_async_crawl(
@@ -426,27 +431,32 @@ async def _run_async_crawl(
     """Run asynchronous crawling."""
     crawl_service = get_crawl_service()
     await crawl_service.initialize()
-    
-    if not quiet:
-        console.print(f"Submitting crawl job for {start_url}...")
-    
-    job_id = await crawl_service.start_crawl_async(
-        start_url=start_url,
-        crawl_rules=crawl_rules,
-        options=options,
-        extraction_strategy=extraction_strategy,
-        output_format=output_format,
-        session_id=session_id,
-        priority=priority
-    )
-    
-    if monitor and not quiet:
-        console.print(f"[green]Job submitted:[/green] {job_id}")
-        console.print("Monitoring progress...")
-        # Note: For async jobs, we'd need to implement job monitoring
-        # For now, just return the job ID
-    
-    return job_id
+    try:
+        if not quiet:
+            console.print(f"Submitting crawl job for {start_url}...")
+        
+        job_id = await crawl_service.start_crawl_async(
+            start_url=start_url,
+            crawl_rules=crawl_rules,
+            options=options,
+            extraction_strategy=extraction_strategy,
+            output_format=output_format,
+            session_id=session_id,
+            priority=priority
+        )
+        
+        if monitor and not quiet:
+            console.print(f"[green]Job submitted:[/green] {job_id}")
+            console.print("Monitoring progress...")
+            # Note: For async jobs, we'd need to implement job monitoring
+            # For now, just return the job ID
+        
+        return job_id
+    finally:
+        if hasattr(crawl_service, "shutdown"):
+            await crawl_service.shutdown()
+        elif hasattr(crawl_service, "close"):
+            await crawl_service.close()
 
 
 async def _monitor_crawl_progress(crawl_service, crawl_id: str) -> None:

@@ -102,6 +102,21 @@ class CrawlService:
             self.logger.error(error_msg)
             handle_error(ValidationError(error_msg))
             raise
+
+    async def shutdown(self) -> None:
+        """Shutdown the crawl service and clean up resources."""
+        for crawl_id, crawl_state in list(self._active_crawls.items()):
+            if crawl_state.status == "running":
+                await self.cancel_crawl(crawl_id)
+
+        if hasattr(self.scrape_service, "shutdown"):
+            await self.scrape_service.shutdown()
+        elif hasattr(self.scrape_service, "close"):
+            await self.scrape_service.close()
+
+    async def close(self) -> None:
+        """Alias for shutdown()."""
+        await self.shutdown()
     
     async def start_crawl(
         self,

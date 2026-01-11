@@ -154,6 +154,14 @@ class StorageManager:
         except Exception as e:
             self.logger.error(f"Failed to cleanup storage manager: {e}")
             raise
+
+    async def close(self) -> None:
+        """Alias for cleanup()."""
+        await self.cleanup()
+
+    async def shutdown(self) -> None:
+        """Alias for cleanup()."""
+        await self.cleanup()
     
     # ==================== CRAWL RESULT STORAGE ====================
     
